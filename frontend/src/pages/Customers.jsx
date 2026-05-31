@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
 
+const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+
 const initialForm = {
   name: '',
   document: '',
@@ -9,14 +11,22 @@ const initialForm = {
   type: 'tienda',
   zone: '',
   creditLimit: 0,
-  currentDebt: 0,
   paymentTermDays: 15
+};
+
+const usagePercent = (customer) => {
+  const creditLimit = Number(customer.creditLimit || 0);
+  if (creditLimit <= 0) return Number(customer.currentDebt || 0) > 0 ? 100 : 0;
+  return (Number(customer.currentDebt || 0) / creditLimit) * 100;
 };
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [form, setForm] = useState(initialForm);
+  const [editingCustomer, setEditingCustomer] = useState(null);
+  const [debtDetail, setDebtDetail] = useState(null);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [filters, setFilters] = useState({ q: '', status: '' });
 
   const loadCustomers = () => api.get('/customers').then(({ data }) => setCustomers(data.data || data));
@@ -28,7 +38,8 @@ export default function Customers() {
           !q ||
           customer.name.toLowerCase().includes(q) ||
           customer.document.toLowerCase().includes(q) ||
-          customer.zone.toLowerCase().includes(q);
+          customer.zone.toLowerCase().includes(q) ||
+          (customer.phone || '').toLowerCase().includes(q);
         const matchesStatus = !filters.status || customer.status === filters.status;
         return matchesText && matchesStatus;
       }),
@@ -36,7 +47,7 @@ export default function Customers() {
   );
 
   const usageTone = (customer) => {
-    const usage = Number(customer.creditLimit) > 0 ? (Number(customer.currentDebt) / Number(customer.creditLimit)) * 100 : 100;
+    const usage = usagePercent(customer);
     if (usage > 80) return 'danger';
     if (usage >= 50) return 'warning';
     return 'positive';
@@ -46,15 +57,86 @@ export default function Customers() {
     loadCustomers().catch((err) => setError(err.response?.data?.message || 'Error cargando clientes.'));
   }, []);
 
+  const resetForm = () => {
+    setForm(initialForm);
+    setEditingCustomer(null);
+    setError('');
+    setSuccess('');
+  };
+
+  const editCustomer = (customer) => {
+    setEditingCustomer(customer);
+    setForm({
+      name: customer.name || '',
+      document: customer.document || '',
+      phone: customer.phone || '',
+      email: customer.email || '',
+      type: customer.type || 'tienda',
+      zone: customer.zone || '',
+      creditLimit: Number(customer.creditLimit || 0),
+      paymentTermDays: Number(customer.paymentTermDays || 0)
+    });
+    setError('');
+    setSuccess('');
+  };
+
+  const validateForm = () => {
+    if (!form.name.trim()) return 'El nombre es obligatorio.';
+    if (!form.document.trim()) return 'El documento es obligatorio.';
+    if (Number(form.creditLimit) < 0) return 'El cupo de credito no puede ser negativo.';
+    if (Number(form.paymentTermDays) < 0) return 'El plazo de pago no puede ser negativo.';
+    if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return 'El email no tiene un formato valido.';
+    if (editingCustomer && Number(form.creditLimit) < Number(editingCustomer.currentDebt || 0)) {
+      return 'El cupo no puede ser menor que la deuda actual del cliente.';
+    }
+    return '';
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
+    setSuccess('');
+
+    const validationMessage = validateForm();
+    if (validationMessage) {
+      setError(validationMessage);
+      return;
+    }
+
+    const payload = {
+      name: form.name,
+      document: form.document,
+      phone: form.phone,
+      email: form.email,
+      type: form.type,
+      zone: form.zone,
+      creditLimit: Number(form.creditLimit || 0),
+      paymentTermDays: Number(form.paymentTermDays || 0)
+    };
+
     try {
-      await api.post('/customers', form);
-      setForm(initialForm);
+      if (editingCustomer) {
+        await api.put(`/customers/${editingCustomer._id}`, payload);
+        setSuccess('Cliente actualizado correctamente.');
+      } else {
+        await api.post('/customers', payload);
+        setSuccess('Cliente creado correctamente.');
+      }
+      resetForm();
       await loadCustomers();
     } catch (err) {
-      setError(err.response?.data?.message || 'Error creando cliente.');
+      setError(err.response?.data?.message || err.userMessage || 'No se pudo guardar el cliente.');
+    }
+  };
+
+  const viewDebt = async (customer) => {
+    setError('');
+    setSuccess('');
+    try {
+      const { data } = await api.get(`/customers/${customer._id}/debt-detail`);
+      setDebtDetail(data);
+    } catch (err) {
+      setError(err.response?.data?.message || err.userMessage || 'No se pudo consultar el detalle de cartera.');
     }
   };
 
@@ -64,8 +146,9 @@ export default function Customers() {
         <h2>Clientes B2B</h2>
         <p>Cartera, zonas, cupos y estados comerciales.</p>
       </div>
+      <div className="notice info">Diferencia cartera $0 significa que la cartera esta conciliada, no necesariamente que no existan clientes con deuda.</div>
       <div className="module-toolbar">
-        <input placeholder="Buscar cliente, documento o zona" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} />
+        <input placeholder="Buscar cliente, documento, telefono o zona" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} />
         <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
           <option value="">Todos los estados</option>
           <option value="activo">Activo</option>
@@ -82,24 +165,72 @@ export default function Customers() {
           <option value="tienda">Tienda</option><option value="minimercado">Minimercado</option><option value="colegio">Colegio</option><option value="institucional">Institucional</option><option value="cafeteria">Cafeteria</option><option value="mayorista">Mayorista</option>
         </select></label>
         <label>Zona<input value={form.zone} onChange={(e) => setForm({ ...form, zone: e.target.value })} required /></label>
-        <label>Cupo credito<input type="number" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: Number(e.target.value) })} /></label>
-        <label>Plazo dias<input type="number" value={form.paymentTermDays} onChange={(e) => setForm({ ...form, paymentTermDays: Number(e.target.value) })} /></label>
-        <button className="button primary" type="submit">Crear cliente</button>
+        <label>Cupo credito<input type="number" min="0" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: e.target.value })} /></label>
+        <label>Plazo dias<input type="number" min="0" value={form.paymentTermDays} onChange={(e) => setForm({ ...form, paymentTermDays: e.target.value })} /></label>
+        {editingCustomer && (
+          <div className="notice warning wide">
+            Deuda actual: {money.format(editingCustomer.currentDebt || 0)}. La deuda se actualiza automaticamente con ventas, pagos y anulaciones; no se edita manualmente.
+          </div>
+        )}
+        <button className="button primary" type="submit">{editingCustomer ? 'Actualizar cliente' : 'Crear cliente'}</button>
+        {editingCustomer && <button className="button secondary" type="button" onClick={resetForm}>Cancelar edicion</button>}
       </form>
       {error && <p className="error">{error}</p>}
+      {success && <p className="success">{success}</p>}
+
+      {debtDetail && (
+        <section className="page-stack">
+          <div className="section-heading">
+            <h3>Detalle de cartera: {debtDetail.customer.name}</h3>
+            <button className="button secondary" type="button" onClick={() => setDebtDetail(null)}>Cerrar</button>
+          </div>
+          <section className="kpi-grid">
+            <article className="kpi-card warning"><span>Deuda actual</span><strong>{money.format(debtDetail.summary.currentDebt)}</strong></article>
+            <article className="kpi-card info"><span>Ventas credito pendientes</span><strong>{money.format(debtDetail.summary.pendingSalesBalance)}</strong></article>
+            <article className={`kpi-card ${debtDetail.summary.difference === 0 ? 'positive' : 'danger'}`}><span>Diferencia</span><strong>{money.format(debtDetail.summary.difference)}</strong></article>
+          </section>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th colSpan="5">Ventas pendientes</th></tr><tr><th>Fecha</th><th>Total</th><th>Pagado</th><th>Saldo</th><th>Estado</th></tr></thead>
+              <tbody>
+                {debtDetail.pendingSales.length === 0 && <tr><td colSpan="5">No hay ventas credito pendientes.</td></tr>}
+                {debtDetail.pendingSales.map((sale) => (
+                  <tr key={sale._id}><td>{new Date(sale.date).toLocaleDateString('es-CO')}</td><td>{money.format(sale.total)}</td><td>{money.format(sale.paidAmount)}</td><td>{money.format(sale.balance)}</td><td>{sale.paymentStatus}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th colSpan="5">Pagos recientes</th></tr><tr><th>Fecha</th><th>Monto</th><th>Metodo</th><th>Nota</th><th>Aplicaciones</th></tr></thead>
+              <tbody>
+                {debtDetail.payments.length === 0 && <tr><td colSpan="5">No hay pagos registrados.</td></tr>}
+                {debtDetail.payments.map((payment) => (
+                  <tr key={payment._id}><td>{new Date(payment.date).toLocaleDateString('es-CO')}</td><td>{money.format(payment.amount)}</td><td>{payment.paymentMethod}</td><td>{payment.note || '-'}</td><td>{payment.appliedToSales?.length || 0}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Cliente</th><th>Documento</th><th>Tipo</th><th>Zona</th><th>Cupo</th><th>Deuda</th><th>Uso cupo</th><th>Estado</th></tr>
+            <tr><th>Cliente</th><th>Documento</th><th>Telefono</th><th>Zona</th><th>Cupo</th><th>Deuda</th><th>Uso cupo</th><th>Estado</th><th>Acciones</th></tr>
           </thead>
           <tbody>
             {filteredCustomers.map((customer) => (
               <tr key={customer._id} className={`row-${customer.status}`}>
-                <td>{customer.name}</td><td>{customer.document}</td><td>{customer.type}</td><td>{customer.zone}</td>
-                <td>${Number(customer.creditLimit).toLocaleString('es-CO')}</td>
-                <td>${Number(customer.currentDebt).toLocaleString('es-CO')}</td>
-                <td><span className={`risk-dot ${usageTone(customer)}`}></span>{Number(customer.creditLimit) > 0 ? `${((Number(customer.currentDebt) / Number(customer.creditLimit)) * 100).toFixed(1)}%` : '100%'}</td>
+                <td>{customer.name}</td><td>{customer.document}</td><td>{customer.phone || '-'}</td><td>{customer.zone}</td>
+                <td>{money.format(customer.creditLimit)}</td>
+                <td className={Number(customer.currentDebt) > 0 ? 'error' : ''}>{money.format(customer.currentDebt)}</td>
+                <td><span className={`risk-dot ${usageTone(customer)}`}></span>{usagePercent(customer).toFixed(1)}%</td>
                 <td><span className={`badge ${customer.status}`}>{customer.status}</span></td>
+                <td>
+                  <button className="button secondary" type="button" onClick={() => editCustomer(customer)}>Editar</button>
+                  <button className="button ghost" type="button" onClick={() => viewDebt(customer)}>Ver deuda</button>
+                </td>
               </tr>
             ))}
           </tbody>
