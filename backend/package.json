@@ -1,0 +1,36 @@
+{
+  "name": "dulceerp-backend",
+  "version": "1.0.0",
+  "description": "Backend API para DulceERP Distribuciones",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "seed": "node src/seed/seedAdmin.js",
+    "test:mongo": "node src/scripts/testMongoConnection.js",
+    "audit:readonly": "node src/scripts/auditReadOnly.js",
+    "final:audit": "node src/scripts/finalAudit.js",
+    "check:api": "node src/scripts/checkApi.js",
+    "kill:5000": "powershell -ExecutionPolicy Bypass -File src/scripts/killPort5000.ps1",
+    "start:safe": "npm run kill:5000 && npm run dev"
+  },
+  "keywords": [
+    "erp",
+    "express",
+    "mongodb",
+    "mongoose"
+  ],
+  "author": "Dulces Epifania Distribuciones S.A.S.",
+  "license": "MIT",
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.9.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9"
+  }
+}
