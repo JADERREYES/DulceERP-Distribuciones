@@ -3,7 +3,7 @@ import axios from 'axios';
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
 export const BACKEND_CONNECTION_MESSAGE =
-  `No se pudo conectar con el backend. Verifica que la API esté disponible en: ${API_URL}`;
+  `No se pudo conectar con el backend. Verifica que la API este disponible en: ${API_URL}`;
 
 const api = axios.create({
   baseURL: API_URL,
@@ -34,7 +34,7 @@ api.interceptors.response.use(
     }
 
     if (error.response?.status === 403) {
-      error.userMessage = 'No tienes permisos para realizar esta acción.';
+      error.userMessage = 'No tienes permisos para realizar esta accion.';
     }
 
     if (error.response?.status === 401) {

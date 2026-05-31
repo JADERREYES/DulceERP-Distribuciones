@@ -1,4 +1,8 @@
 const updateBatchStatus = (batch) => {
+  if (batch.status === 'bloqueado') {
+    return batch.status;
+  }
+
   const availableQuantity = Number(batch.availableQuantity || 0);
   const now = new Date();
   now.setHours(0, 0, 0, 0);

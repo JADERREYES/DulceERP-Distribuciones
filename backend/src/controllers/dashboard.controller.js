@@ -146,6 +146,7 @@ const buildSummary = async () => {
     totalBatches,
     expiringBatches,
     expiredBatches,
+    expiredBatchesWithStock: expiredBatches,
     totalWasteCost: round(totalWasteCost),
     wasteCount,
     productsWithoutSufficientBatches: productsWithoutBatches.length,
@@ -293,7 +294,7 @@ const alerts = async (req, res) => {
     if (data.lowStockProducts > 0) alertsList.push({ type: 'warning', title: 'Stock bajo', message: `${data.lowStockProducts} productos estan en nivel minimo`, module: 'products' });
     if (data.nearExpirationCount > 0) alertsList.push({ type: 'warning', title: 'Productos proximos a vencer', message: `${data.nearExpirationCount} productos vencen pronto`, module: 'products' });
     if (data.expiringBatches > 0) alertsList.push({ type: 'warning', title: 'Lotes proximos a vencer', message: `${data.expiringBatches} lotes vencen en los proximos 30 dias`, module: 'batches' });
-    if (data.expiredBatches > 0) alertsList.push({ type: 'danger', title: 'Lotes vencidos', message: `${data.expiredBatches} lotes vencidos aun tienen cantidad disponible`, module: 'batches' });
+    if (data.expiredBatches > 0) alertsList.push({ type: 'danger', title: 'Lotes vencidos con stock', message: `Existen ${data.expiredBatches} lotes vencidos con unidades disponibles. Deben gestionarse como merma, bloqueo o correccion autorizada.`, module: 'batches' });
     if (data.productsWithoutSufficientBatches > 0) alertsList.push({ type: 'warning', title: 'Productos historicos sin lotes', message: `${data.productsWithoutSufficientBatches} productos tienen stock sin lotes suficientes. Revise Limpieza de datos.`, module: 'dataCleanup' });
     if (data.totalWasteCost > BASE_CMV * 0.02) alertsList.push({ type: 'warning', title: 'Costo de merma alto', message: `Mermas acumuladas por ${round(data.totalWasteCost, 0).toLocaleString('es-CO')}`, module: 'wastes' });
     if (data.blockedCustomers > 0) alertsList.push({ type: 'danger', title: 'Clientes bloqueados', message: `${data.blockedCustomers} clientes superaron su cupo`, module: 'customers' });

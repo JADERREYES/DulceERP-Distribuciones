@@ -114,7 +114,7 @@ const main = async () => {
     Supplier.find({ currentDebt: { $lt: 0 } }).select('name document currentDebt').lean(),
     Sale.find({ balance: { $lt: 0 } }).populate('customer', 'name document').select('customer total paidAmount balance paymentStatus').lean(),
     Purchase.find({ balance: { $lt: 0 } }).populate('supplier', 'name document').select('supplier total paidAmount balance paymentStatus').lean(),
-    ProductBatch.find({ expirationDate: { $lt: now }, availableQuantity: { $gt: 0 } }).populate('product', 'name sku').select('batchNumber expirationDate availableQuantity product').lean(),
+    ProductBatch.find({ expirationDate: { $lt: now }, availableQuantity: { $gt: 0 } }).populate('product', 'name sku').select('batchNumber expirationDate availableQuantity unitCost product').lean(),
     Sale.find({ status: 'anulada', balance: { $gt: 0 } }).populate('customer', 'name document').select('customer total balance').lean(),
     Purchase.find({ status: 'anulada', balance: { $gt: 0 } }).populate('supplier', 'name document').select('supplier total balance').lean(),
     collectStockVsBatches(),
@@ -186,6 +186,7 @@ const main = async () => {
   console.log(`- Costo total de mermas: $${money(financial.totalWasteCost)}`);
   console.log('\nInconsistencias detectadas:');
   Object.entries(report.inconsistencies).forEach(([name, rows]) => console.log(`- ${name}: ${rows.length}`));
+  console.log(`- Total lotes vencidos con stock disponible: ${expiredBatchesWithStock.length}`);
   console.log('\nDatos demo:');
   console.log(`- Posibles registros demo por patron: ${possibleDemo.summary.totalPossibleDemoRecords}`);
   Object.entries(report.demo.markedDemo).forEach(([name, count]) => console.log(`- ${name} isDemo=true: ${count}`));
@@ -196,7 +197,18 @@ const main = async () => {
     console.log('\nDetalle resumido:');
     for (const [name, rows] of relevant) {
       console.log(`\n${name}:`);
-      rows.slice(0, 10).forEach((row) => console.log(JSON.stringify(row)));
+      if (name === 'expiredBatchesWithStock') {
+        rows.slice(0, 10).forEach((row) => console.log(JSON.stringify({
+          producto: row.product?.name,
+          sku: row.product?.sku,
+          lote: row.batchNumber,
+          cantidad: row.availableQuantity,
+          vencimiento: row.expirationDate,
+          costoTotal: Number(row.availableQuantity || 0) * Number(row.unitCost || 0)
+        })));
+      } else {
+        rows.slice(0, 10).forEach((row) => console.log(JSON.stringify(row)));
+      }
       if (rows.length > 10) console.log(`... ${rows.length - 10} registros adicionales`);
     }
   }

@@ -103,6 +103,96 @@ const createWaste = async (req, res) => {
   }
 };
 
+const createWasteFromBatch = async (req, res) => {
+  const session = await mongoose.startSession();
+  try {
+    const { batchId, quantity, reason = 'vencimiento', description } = req.body;
+    const wasteQuantity = Number(quantity);
+    if (!batchId) return res.status(400).json({ message: 'Debe seleccionar un lote.', field: 'batchId' });
+    if (!wasteQuantity || wasteQuantity <= 0) return res.status(400).json({ message: 'La cantidad debe ser mayor que cero.', field: 'quantity' });
+
+    let waste;
+    let updatedBatch;
+    let updatedProduct;
+
+    await session.withTransaction(async () => {
+      const batch = await ProductBatch.findById(batchId).session(session);
+      if (!batch) throw Object.assign(new Error('Lote no encontrado.'), { statusCode: 404 });
+      if (Number(batch.availableQuantity || 0) < wasteQuantity) throw Object.assign(new Error('Cantidad disponible insuficiente en el lote.'), { statusCode: 400 });
+
+      const product = await Product.findById(batch.product).session(session);
+      if (!product) throw Object.assign(new Error('Producto asociado al lote no encontrado.'), { statusCode: 404 });
+      if (Number(product.stock || 0) < wasteQuantity) throw Object.assign(new Error('Stock insuficiente en el producto para registrar la merma.'), { statusCode: 400 });
+
+      const previousStock = Number(product.stock || 0);
+      const unitCost = Number(batch.unitCost || product.unitCost || 0);
+
+      batch.availableQuantity = Number(batch.availableQuantity || 0) - wasteQuantity;
+      batch.updateStatus();
+      updatedBatch = await batch.save({ session });
+
+      product.stock = previousStock - wasteQuantity;
+      product.updateInventoryStatus();
+      updatedProduct = await product.save({ session });
+
+      const created = await Waste.create(
+        [
+          {
+            product: product._id,
+            batch: batch._id,
+            batchNumber: batch.batchNumber,
+            quantity: wasteQuantity,
+            reason,
+            unitCost,
+            totalCost: unitCost * wasteQuantity,
+            description,
+            createdBy: req.user?._id
+          }
+        ],
+        { session }
+      );
+      waste = created[0];
+
+      await InventoryMovement.create(
+        [
+          {
+            product: product._id,
+            type: 'merma',
+            quantity: -wasteQuantity,
+            unitCost,
+            previousStock,
+            newStock: product.stock,
+            referenceType: 'Waste',
+            referenceId: waste._id.toString(),
+            batch: batch._id,
+            batchNumber: batch.batchNumber,
+            description: `Merma desde lote por ${reason}`,
+            user: req.user?._id
+          }
+        ],
+        { session }
+      );
+    });
+
+    const populated = await Waste.findById(waste._id).populate('product').populate('batch').populate('createdBy', 'name email role');
+    await createAuditLog({
+      req,
+      action: 'CREATE',
+      module: 'wastes',
+      entityId: populated._id,
+      entityType: 'Waste',
+      description: `Merma registrada desde lote ${populated.batchNumber} por ${populated.reason}`,
+      after: populated.toObject(),
+      metadata: { batchStatus: updatedBatch?.status, productStock: updatedProduct?.stock }
+    });
+    return res.status(201).json(populated);
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({ message: 'Error registrando merma desde lote.', error: error.message });
+  } finally {
+    await session.endSession();
+  }
+};
+
 const getWasteById = async (req, res) => {
   try {
     const waste = await Waste.findById(req.params.id).populate('product').populate('batch').populate('createdBy', 'name email role');
@@ -113,4 +203,4 @@ const getWasteById = async (req, res) => {
   }
 };
 
-module.exports = { createWaste, getWasteById, getWastes };
+module.exports = { createWaste, createWasteFromBatch, getWasteById, getWastes };

@@ -200,6 +200,26 @@ export default function Reports() {
               <Kpi title="Stock sin lotes suficientes" value={number.format(list(reports.inventory.stockWithoutEnoughBatches).length)} tone="warning" />
               <Kpi title="Agotados" value={number.format(list(reports.inventory.outOfStockProducts).length)} tone="danger" />
               <Kpi title="Lotes vencidos" value={number.format(list(reports.inventory.expiredBatches).length)} tone="danger" />
+              <Kpi title="Unidades vencidas" value={number.format(reports.inventory.expiredStockUnits || 0)} tone="danger" />
+              <Kpi title="Perdida estimada vencimiento" value={money.format(reports.inventory.expiredStockValue || 0)} tone="danger" />
+            </div>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th colSpan="6">Lotes vencidos con stock</th></tr><tr><th>Producto</th><th>SKU</th><th>Lote</th><th>Disponible</th><th>Vencimiento</th><th>Valor estimado</th></tr></thead>
+                <tbody>
+                  {list(reports.inventory.expiredBatchesWithStock || reports.inventory.expiredBatches).length === 0 && <EmptyRow colSpan={6} message="No hay lotes vencidos con stock." />}
+                  {list(reports.inventory.expiredBatchesWithStock || reports.inventory.expiredBatches).map((batch) => (
+                    <tr key={batch._id}>
+                      <td>{batch.product?.name}</td>
+                      <td>{batch.product?.sku}</td>
+                      <td>{batch.batchNumber}</td>
+                      <td>{batch.availableQuantity}</td>
+                      <td>{formatDate(batch.expirationDate)}</td>
+                      <td>{money.format(Number(batch.availableQuantity || 0) * Number(batch.unitCost || 0))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
             <div className="table-wrap">
               <table>

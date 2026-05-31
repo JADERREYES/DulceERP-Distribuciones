@@ -106,6 +106,8 @@ const getInventoryValuationData = async () => {
   const limit = daysFromNow(30);
   const expiringBatches = batches.filter((batch) => batch.availableQuantity > 0 && new Date(batch.expirationDate) >= today && new Date(batch.expirationDate) <= limit);
   const expiredBatches = batches.filter((batch) => batch.availableQuantity > 0 && new Date(batch.expirationDate) < today);
+  const expiredStockUnits = sum(expiredBatches, (batch) => batch.availableQuantity);
+  const expiredStockValue = sum(expiredBatches, (batch) => safeNumber(batch.availableQuantity) * safeNumber(batch.unitCost));
 
   return {
     totalProducts: products.length,
@@ -116,7 +118,11 @@ const getInventoryValuationData = async () => {
     outOfStockProducts: products.filter((product) => product.status === 'agotado' || safeNumber(product.stock) <= 0),
     lowStockProducts: products.filter((product) => product.status === 'bajo_stock' || (safeNumber(product.stock) > 0 && safeNumber(product.stock) <= safeNumber(product.minStock))),
     expiringBatches,
-    expiredBatches
+    expiredBatches,
+    expiredBatchesWithStock: expiredBatches,
+    expiredStockUnits,
+    expiredStockValue,
+    estimatedExpirationLoss: expiredStockValue
   };
 };
 

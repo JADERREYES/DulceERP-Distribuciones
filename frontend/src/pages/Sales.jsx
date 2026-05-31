@@ -13,6 +13,7 @@ export default function Sales() {
   const [lastSale, setLastSale] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [validationSummary, setValidationSummary] = useState(null);
   const [saleFilters, setSaleFilters] = useState({ status: '', paymentMethod: '' });
 
   const selectedProduct = useMemo(() => products.find((product) => product._id === form.product), [products, form.product]);
@@ -93,31 +94,90 @@ export default function Sales() {
     setOrderItems((items) => items.filter((item) => item.product !== productId));
   };
 
+  const buildSalePayload = () => ({
+    customer: form.customer,
+    paymentMethod: form.paymentMethod,
+    routeZone: form.routeZone,
+    items: orderItems.map((item) => ({
+      product: item.product,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.salePrice)
+    }))
+  });
+
+  const backendMessage = (err, fallback) =>
+    err.response?.data?.message ||
+    err.response?.data?.error ||
+    err.userMessage ||
+    fallback;
+
+  const validateBeforeSend = () => {
+    if (!form.customer) return 'Seleccione un cliente.';
+    if (orderItems.length === 0) {
+      return 'Agregue al menos un producto a la venta.';
+    }
+    if (!form.paymentMethod) return 'Seleccione una forma de pago.';
+    if (!form.routeZone || !String(form.routeZone).trim()) return 'Seleccione zona o ruta.';
+
+    for (const item of orderItems) {
+      if (!item.product) return 'Seleccione un producto valido.';
+      if (!Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0) return 'La cantidad debe ser mayor que cero.';
+      if (!Number.isFinite(Number(item.salePrice)) || Number(item.salePrice) <= 0) return 'El precio de venta debe ser mayor que cero.';
+      if (Number(item.stock) <= 0) return 'El producto no tiene stock disponible.';
+      if (Number(item.quantity) > Number(item.stock)) return `Stock insuficiente para ${item.name}. Disponible: ${item.stock}`;
+    }
+    return '';
+  };
+
+  const validateSaleWithBackend = async () => {
+    setError('');
+    setSuccess('');
+    setValidationSummary(null);
+
+    const localError = validateBeforeSend();
+    if (localError) {
+      setError(localError);
+      return null;
+    }
+
+    const payload = buildSalePayload();
+    if (import.meta.env.DEV) console.log('Payload venta', payload);
+
+    try {
+      const validationRes = await api.post('/sales/validate', payload);
+      setValidationSummary(validationRes.data.summary);
+      setSuccess(validationRes.data.message || 'La venta es valida y puede registrarse.');
+      return validationRes.data;
+    } catch (err) {
+      if (import.meta.env.DEV && err.response?.data?.details) console.log('Detalles validacion venta', err.response.data.details);
+      setError(backendMessage(err, 'No se pudo validar la venta.'));
+      return null;
+    }
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     setError('');
     setSuccess('');
+    setValidationSummary(null);
 
-    if (orderItems.length === 0) {
-      setError('Agrega al menos un producto al pedido.');
-      return;
-    }
+    const validation = await validateSaleWithBackend();
+    if (!validation?.ok) return;
 
     try {
-      const saleRes = await api.post('/sales', {
-        customer: form.customer,
-        paymentMethod: form.paymentMethod,
-        routeZone: form.routeZone,
-        items: orderItems.map((item) => ({ product: item.product, quantity: item.quantity }))
-      });
+      const payload = buildSalePayload();
+      if (import.meta.env.DEV) console.log('Payload venta', payload);
+      const saleRes = await api.post('/sales', payload);
 
       setLastSale(saleRes.data);
       setForm({ customer: '', product: '', quantity: 1, paymentMethod: 'contado', routeZone: '' });
       setOrderItems([]);
+      setValidationSummary(null);
       setSuccess('Venta registrada correctamente. Lotes asignados por FEFO.');
       await loadData();
     } catch (err) {
-      setError(err.response?.data?.message || err.response?.data?.error || 'Error registrando venta.');
+      if (import.meta.env.DEV && err.response?.data?.details) console.log('Detalles error venta', err.response.data.details);
+      setError(backendMessage(err, 'No se pudo registrar la venta.'));
     }
   };
 
@@ -149,7 +209,7 @@ export default function Sales() {
           <option value="">Seleccionar</option>{customers.map((customer) => <option key={customer._id} value={customer._id}>{customer.name} - {customer.status}</option>)}
         </select></label>
         <label>Forma de pago<select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
-          <option value="contado">Contado</option><option value="credito">Credito</option>
+          <option value="">Seleccionar</option><option value="contado">Contado</option><option value="credito">Credito</option>
         </select></label>
         <label>Zona/ruta<input value={form.routeZone} onChange={(e) => setForm({ ...form, routeZone: e.target.value })} required /></label>
         <label>Producto<select value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })}>
@@ -159,6 +219,7 @@ export default function Sales() {
         <button className="button secondary" type="button" onClick={addProduct} disabled={selectedProduct && Number(form.quantity) > Number(selectedProduct.stock)}>Agregar producto</button>
         <div className="inline-total">Total pedido: {money.format(total)}</div>
         <div className="inline-total">Utilidad estimada: {money.format(estimatedProfit)}</div>
+        <button className="button secondary" type="button" onClick={validateSaleWithBackend}>Validar venta</button>
         <button className="button primary" type="submit">Guardar venta</button>
       </form>
       {selectedCustomer && <div className="notice info">Zona sugerida: {selectedCustomer.zone}. Cupo disponible: {money.format(Number(selectedCustomer.creditLimit) - Number(selectedCustomer.currentDebt))}</div>}
@@ -167,6 +228,11 @@ export default function Sales() {
 
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}
+      {validationSummary && (
+        <div className="notice info">
+          Validacion: {validationSummary.itemsCount} item(s), total {money.format(validationSummary.total)}, costo estimado {money.format(validationSummary.estimatedCost)}, utilidad estimada {money.format(validationSummary.estimatedGrossProfit)}.
+        </div>
+      )}
 
       {orderItems.length > 0 && (
         <div className="table-wrap">

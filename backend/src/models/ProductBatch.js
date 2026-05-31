@@ -14,7 +14,7 @@ const productBatchSchema = new mongoose.Schema(
     receivedDate: { type: Date, default: Date.now },
     status: {
       type: String,
-      enum: ['disponible', 'bajo_stock', 'proximo_vencer', 'vencido', 'agotado'],
+      enum: ['disponible', 'bajo_stock', 'proximo_vencer', 'vencido', 'agotado', 'bloqueado'],
       default: 'disponible'
     },
     notes: { type: String, trim: true },
