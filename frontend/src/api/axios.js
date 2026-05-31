@@ -1,8 +1,9 @@
 import axios from 'axios';
 
 export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+
 export const BACKEND_CONNECTION_MESSAGE =
-  'No se pudo conectar con el backend. Verifica que el servidor esté corriendo en http://localhost:5000.';
+  `No se pudo conectar con el backend. Verifica que la API esté disponible en: ${API_URL}`;
 
 const api = axios.create({
   baseURL: API_URL,
@@ -11,9 +12,11 @@ const api = axios.create({
 
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('dulceerp_token');
+
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
   return config;
 });
 
