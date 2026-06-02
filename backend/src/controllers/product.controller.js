@@ -1,4 +1,8 @@
 const Product = require('../models/Product');
+const InventoryMovement = require('../models/InventoryMovement');
+const ProductBatch = require('../models/ProductBatch');
+const Purchase = require('../models/Purchase');
+const Sale = require('../models/Sale');
 const { paginatedResponse } = require('../utils/pagination');
 const { createAuditLog } = require('../utils/auditLogger');
 
@@ -104,8 +108,24 @@ const updateProduct = async (req, res) => {
 
 const deleteProduct = async (req, res) => {
   try {
-    const product = await Product.findByIdAndDelete(req.params.id);
+    const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ message: 'Producto no encontrado.' });
+
+    const [sales, purchases, batches, movements] = await Promise.all([
+      Sale.countDocuments({ 'items.product': product._id }),
+      Purchase.countDocuments({ 'items.product': product._id }),
+      ProductBatch.countDocuments({ product: product._id }),
+      InventoryMovement.countDocuments({ product: product._id })
+    ]);
+
+    if (sales || purchases || batches || movements) {
+      return res.status(409).json({
+        message: 'No se puede eliminar porque tiene movimientos asociados.',
+        details: { sales, purchases, batches, movements }
+      });
+    }
+
+    await Product.deleteOne({ _id: product._id });
     await createAuditLog({
       req,
       action: 'DELETE',

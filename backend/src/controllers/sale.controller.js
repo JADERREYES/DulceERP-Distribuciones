@@ -6,6 +6,7 @@ const ProductBatch = require('../models/ProductBatch');
 const Sale = require('../models/Sale');
 const { createAuditLog } = require('../utils/auditLogger');
 const { paginatedResponse } = require('../utils/pagination');
+const { applyDateRange, escapeRegex } = require('../utils/queryFilters');
 
 const saleValidationError = (message, field, details = {}, statusCode = 400) => {
   const error = new Error(message);
@@ -226,17 +227,19 @@ const validateSalePayload = async ({ body, user, session, mutate = false }) => {
 
 const getSales = async (req, res) => {
   try {
-    const { search, status, paymentMethod, paymentStatus } = req.query;
+    const { search, status, paymentMethod, paymentStatus, customer } = req.query;
     const filter = {};
     if (status) filter.status = status;
     if (paymentMethod) filter.paymentMethod = paymentMethod;
     if (paymentStatus) filter.paymentStatus = paymentStatus;
+    if (customer) filter.customer = customer;
     if (search) {
-      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const regex = new RegExp(escapeRegex(search), 'i');
       const customers = await Customer.find({ $or: [{ name: regex }, { document: regex }] }).select('_id');
       filter.$or = [{ customer: { $in: customers.map((customer) => customer._id) } }];
       if (mongoose.Types.ObjectId.isValid(search)) filter.$or.push({ _id: search });
     }
+    applyDateRange(filter, req.query);
 
     return res.json(
       await paginatedResponse(Sale, {

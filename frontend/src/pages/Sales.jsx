@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
+import { exportToCsv, formatDate } from '../utils/exportUtils';
 
 const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
@@ -14,24 +15,25 @@ export default function Sales() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [validationSummary, setValidationSummary] = useState(null);
-  const [saleFilters, setSaleFilters] = useState({ status: '', paymentMethod: '' });
+  const [saleFilters, setSaleFilters] = useState({ customer: '', status: '', paymentMethod: '', paymentStatus: '', from: '', to: '' });
+  const [selectedSale, setSelectedSale] = useState(null);
 
   const selectedProduct = useMemo(() => products.find((product) => product._id === form.product), [products, form.product]);
   const selectedProductExpiringBatches = useMemo(() => expiringBatches.filter((batch) => batch.product?._id === form.product), [expiringBatches, form.product]);
   const selectedCustomer = useMemo(() => customers.find((customer) => customer._id === form.customer), [customers, form.customer]);
   const total = orderItems.reduce((sum, item) => sum + item.quantity * item.salePrice, 0);
   const estimatedProfit = orderItems.reduce((sum, item) => sum + item.quantity * (item.salePrice - item.unitCost), 0);
-  const filteredSales = sales.filter((sale) => {
-    const matchesStatus = !saleFilters.status || (sale.status || 'activa') === saleFilters.status;
-    const matchesPayment = !saleFilters.paymentMethod || sale.paymentMethod === saleFilters.paymentMethod;
-    return matchesStatus && matchesPayment;
-  });
+  const filteredSales = sales;
 
   const loadData = async () => {
+    const params = new URLSearchParams({ limit: '100' });
+    Object.entries(saleFilters).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
     const [salesRes, productsRes, customersRes, batchesRes] = await Promise.all([
-      api.get('/sales'),
-      api.get('/products'),
-      api.get('/customers'),
+      api.get(`/sales?${params.toString()}`),
+      api.get('/products?limit=100'),
+      api.get('/customers?limit=100'),
       api.get('/batches/expiring')
     ]);
 
@@ -184,6 +186,7 @@ export default function Sales() {
   const cancelSale = async (saleId) => {
     setError('');
     setSuccess('');
+    if (!window.confirm('Anular una venta devuelve stock a inventario y ajusta cartera pendiente si aplica. Continua solo si ya verificaste la venta.')) return;
 
     try {
       await api.patch(`/sales/${saleId}/cancel`);
@@ -193,6 +196,25 @@ export default function Sales() {
       setError(err.response?.data?.message || err.response?.data?.error || 'Error anulando venta.');
     }
   };
+
+  const exportSales = () => {
+    const ok = exportToCsv('ventas-filtradas.csv', filteredSales.map((sale) => ({
+      Fecha: formatDate(sale.createdAt),
+      Cliente: sale.customer?.name || '',
+      Total: sale.total,
+      Pagado: sale.paidAmount || 0,
+      Saldo: sale.balance || 0,
+      Costo: sale.totalCost || 0,
+      Utilidad: sale.grossProfit || 0,
+      'Forma pago': sale.paymentMethod,
+      'Estado pago': sale.paymentStatus,
+      'Estado venta': sale.status || 'activa',
+      Ruta: sale.routeZone || ''
+    })));
+    if (!ok) setError('No hay ventas para exportar.');
+  };
+
+  const updateSaleFilter = (field, value) => setSaleFilters((current) => ({ ...current, [field]: value }));
 
   return (
     <div className="page-stack">
@@ -274,17 +296,44 @@ export default function Sales() {
       )}
 
       <div className="module-toolbar">
-        <select value={saleFilters.status} onChange={(e) => setSaleFilters({ ...saleFilters, status: e.target.value })}>
+        <select value={saleFilters.customer} onChange={(e) => updateSaleFilter('customer', e.target.value)}>
+          <option value="">Todos los clientes</option>
+          {customers.map((customer) => <option key={customer._id} value={customer._id}>{customer.name}</option>)}
+        </select>
+        <select value={saleFilters.status} onChange={(e) => updateSaleFilter('status', e.target.value)}>
           <option value="">Todos los estados</option>
           <option value="activa">Activas</option>
           <option value="anulada">Anuladas</option>
         </select>
-        <select value={saleFilters.paymentMethod} onChange={(e) => setSaleFilters({ ...saleFilters, paymentMethod: e.target.value })}>
+        <select value={saleFilters.paymentMethod} onChange={(e) => updateSaleFilter('paymentMethod', e.target.value)}>
           <option value="">Todos los metodos</option>
           <option value="contado">Contado</option>
           <option value="credito">Credito</option>
         </select>
+        <select value={saleFilters.paymentStatus} onChange={(e) => updateSaleFilter('paymentStatus', e.target.value)}>
+          <option value="">Todos los pagos</option>
+          <option value="pendiente">Pendiente</option>
+          <option value="pagado">Pagado</option>
+        </select>
+        <input type="date" value={saleFilters.from} onChange={(e) => updateSaleFilter('from', e.target.value)} />
+        <input type="date" value={saleFilters.to} onChange={(e) => updateSaleFilter('to', e.target.value)} />
+        <button className="button primary" type="button" onClick={loadData}>Consultar</button>
+        <button className="button secondary" type="button" onClick={exportSales}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
+
+      {selectedSale && (
+        <div className="detail-panel">
+          <h3>Detalle venta</h3>
+          <p>{selectedSale.customer?.name} - {money.format(selectedSale.total)} - {selectedSale.paymentMethod} / {selectedSale.paymentStatus}</p>
+          <ul>
+            {selectedSale.items?.flatMap((item) => (item.batches?.length ? item.batches.map((batch) => (
+              <li key={`${selectedSale._id}-${item.product?._id || item.product}-${batch.batchNumber}`}>{item.product?.name}: {batch.quantity} und, lote {batch.batchNumber}, vencimiento {formatDate(batch.expirationDate)}</li>
+            )) : [<li key={`${selectedSale._id}-${item.product?._id || item.product}`}>{item.product?.name}: {item.quantity} und, sin lote asociado en respuesta</li>]))}
+          </ul>
+          <button className="button ghost" type="button" onClick={() => setSelectedSale(null)}>Cerrar detalle</button>
+        </div>
+      )}
 
       <div className="table-wrap">
         <table>
@@ -304,7 +353,7 @@ export default function Sales() {
                 <td>{sale.paymentMethod}</td>
                 <td><span className={`badge ${sale.paymentStatus}`}>{sale.paymentStatus}</span></td>
                 <td><span className={`badge ${sale.status || 'activa'}`}>{sale.status || 'activa'}</span></td>
-                <td>{(sale.status || 'activa') === 'activa' && <button className="button danger" onClick={() => cancelSale(sale._id)}>Anular</button>}</td>
+                <td><button className="button secondary" type="button" onClick={() => setSelectedSale(sale)}>Ver</button>{(sale.status || 'activa') === 'activa' && <button className="button danger" type="button" onClick={() => cancelSale(sale._id)}>Anular</button>}</td>
               </tr>
             ))}
           </tbody>

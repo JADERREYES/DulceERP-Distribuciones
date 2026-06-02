@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
+import { exportToCsv, formatDate } from '../utils/exportUtils';
 
 const initialForm = {
   name: '',
@@ -15,6 +16,8 @@ const initialForm = {
 export default function Products() {
   const [products, setProducts] = useState([]);
   const [form, setForm] = useState(initialForm);
+  const [editingId, setEditingId] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useState(null);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({ q: '', status: '', category: '' });
 
@@ -40,12 +43,56 @@ export default function Products() {
     event.preventDefault();
     setError('');
     try {
-      await api.post('/products', form);
+      if (editingId) {
+        await api.put(`/products/${editingId}`, form);
+      } else {
+        await api.post('/products', form);
+      }
       setForm(initialForm);
+      setEditingId(null);
       await loadProducts();
     } catch (err) {
       setError(err.response?.data?.message || 'Error creando producto.');
     }
+  };
+
+  const editProduct = (product) => {
+    setEditingId(product._id);
+    setForm({
+      name: product.name || '',
+      category: product.category || '',
+      sku: product.sku || '',
+      stock: Number(product.stock || 0),
+      minStock: Number(product.minStock || 0),
+      unitCost: Number(product.unitCost || 0),
+      salePrice: Number(product.salePrice || 0),
+      expirationDate: product.expirationDate ? new Date(product.expirationDate).toISOString().slice(0, 10) : ''
+    });
+  };
+
+  const deleteProduct = async (product) => {
+    if (!window.confirm(`Eliminar producto "${product.name}" solo es permitido si no tiene ventas, compras, lotes ni kardex. Continuar?`)) return;
+    try {
+      await api.delete(`/products/${product._id}`);
+      await loadProducts();
+    } catch (err) {
+      setError(err.userMessage || err.response?.data?.message || err.response?.data?.error || 'Error eliminando producto.');
+    }
+  };
+
+  const exportProducts = () => {
+    const ok = exportToCsv('productos-filtrados.csv', filteredProducts.map((product) => ({
+      Producto: product.name,
+      SKU: product.sku,
+      Categoria: product.category,
+      Stock: product.stock,
+      'Stock minimo': product.minStock,
+      Costo: product.unitCost,
+      Precio: product.salePrice,
+      Vencimiento: formatDate(product.expirationDate),
+      Estado: product.status
+    })));
+    if (!ok) setError('No hay productos para exportar.');
   };
 
   return (
@@ -67,6 +114,7 @@ export default function Products() {
           <option value="">Todas las categorias</option>
           {categories.map((category) => <option key={category} value={category}>{category}</option>)}
         </select>
+        <button className="button secondary" type="button" onClick={exportProducts}>Exportar</button>
       </div>
       <form className="form-grid" onSubmit={handleSubmit}>
         {['name', 'category', 'sku'].map((field) => (
@@ -95,9 +143,18 @@ export default function Products() {
           Vencimiento
           <input type="date" value={form.expirationDate} onChange={(e) => setForm({ ...form, expirationDate: e.target.value })} />
         </label>
-        <button className="button primary" type="submit">Crear producto</button>
+        <button className="button primary" type="submit">{editingId ? 'Guardar cambios' : 'Crear producto'}</button>
+        {editingId && <button className="button ghost" type="button" onClick={() => { setEditingId(null); setForm(initialForm); }}>Cancelar edicion</button>}
       </form>
       {error && <p className="error">{error}</p>}
+      {selectedProduct && (
+        <div className="detail-panel">
+          <h3>Detalle producto</h3>
+          <p>{selectedProduct.name} - {selectedProduct.sku} - {selectedProduct.status}</p>
+          <p>Stock {selectedProduct.stock}, costo ${Number(selectedProduct.unitCost).toLocaleString('es-CO')}, precio ${Number(selectedProduct.salePrice).toLocaleString('es-CO')}</p>
+          <button className="button ghost" type="button" onClick={() => setSelectedProduct(null)}>Cerrar detalle</button>
+        </div>
+      )}
       <div className="table-wrap">
         <table>
           <thead>
@@ -112,6 +169,7 @@ export default function Products() {
               <th>Margen</th>
               <th>Vencimiento</th>
               <th>Estado</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -127,6 +185,7 @@ export default function Products() {
                 <td>{Number(product.unitCost) > 0 ? `${(((Number(product.salePrice) - Number(product.unitCost)) / Number(product.unitCost)) * 100).toFixed(1)}%` : '0%'}</td>
                 <td>{product.expirationDate ? new Date(product.expirationDate).toLocaleDateString('es-CO') : '-'}</td>
                 <td><span className={`badge ${product.status}`}>{product.status}</span></td>
+                <td><button className="button secondary" type="button" onClick={() => setSelectedProduct(product)}>Ver</button><button className="button secondary" type="button" onClick={() => editProduct(product)}>Editar</button><button className="button danger" type="button" onClick={() => deleteProduct(product)}>Eliminar</button></td>
               </tr>
             ))}
           </tbody>

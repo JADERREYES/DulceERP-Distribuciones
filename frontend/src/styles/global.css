@@ -329,6 +329,27 @@ select {
   max-width: 260px;
 }
 
+.detail-panel {
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  background: var(--white);
+  padding: 16px;
+}
+
+.detail-panel h3 {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.detail-panel p {
+  margin: 6px 0;
+}
+
+.detail-panel ul {
+  margin: 8px 0 12px;
+  padding-left: 20px;
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));

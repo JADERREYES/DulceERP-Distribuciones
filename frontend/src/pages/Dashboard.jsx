@@ -21,6 +21,7 @@ import ChartCard from '../components/ChartCard';
 import DateFilter from '../components/DateFilter';
 import KpiCard from '../components/KpiCard';
 import QuickActions from '../components/QuickActions';
+import { exportToCsv } from '../utils/exportUtils';
 
 const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 const percent = (value) => `${Number(value || 0).toFixed(2)}%`;
@@ -61,6 +62,18 @@ export default function Dashboard() {
     { name: 'Utilidad', value: summary.netProfit }
   ];
 
+  const exportDashboard = () => {
+    exportToCsv('dashboard-gerencial.csv', [
+      { Seccion: 'KPI', Concepto: 'Ventas totales', Valor: summary.totalSales, Detalle: `${summary.salesCount} ventas` },
+      { Seccion: 'KPI', Concepto: 'Utilidad neta', Valor: summary.netProfit, Detalle: '' },
+      { Seccion: 'KPI', Concepto: 'Margen neto', Valor: summary.netMargin, Detalle: '%' },
+      { Seccion: 'KPI', Concepto: 'Cuentas por cobrar', Valor: summary.totalReceivables, Detalle: '' },
+      { Seccion: 'KPI', Concepto: 'Costo mermas', Valor: summary.totalWasteCost || 0, Detalle: `${summary.wasteCount || 0} registros` },
+      ...trends.map((item) => ({ Seccion: 'Tendencia', Concepto: item.label, Valor: item.sales, Detalle: `Utilidad ${item.netProfit}` })),
+      ...breakdown.map((item) => ({ Seccion: 'Desglose', Concepto: item.name, Valor: item.value, Detalle: '' }))
+    ]);
+  };
+
   return (
     <div className="page-stack executive-dashboard">
       <section className="executive-header">
@@ -79,6 +92,10 @@ export default function Dashboard() {
       )}
 
       <DateFilter value={period} onChange={setPeriod} />
+      <div className="module-toolbar">
+        <button className="button secondary" type="button" onClick={exportDashboard}>Exportar datos</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir dashboard</button>
+      </div>
       <QuickActions />
 
       <section className="kpi-grid">

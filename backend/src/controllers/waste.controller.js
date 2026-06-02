@@ -5,6 +5,7 @@ const ProductBatch = require('../models/ProductBatch');
 const Waste = require('../models/Waste');
 const { createAuditLog } = require('../utils/auditLogger');
 const { paginatedResponse } = require('../utils/pagination');
+const { applyDateRange, escapeRegex } = require('../utils/queryFilters');
 
 const getWastes = async (req, res) => {
   try {
@@ -13,9 +14,10 @@ const getWastes = async (req, res) => {
     if (reason) filter.reason = reason;
     if (product) filter.product = product;
     if (search) {
-      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const regex = new RegExp(escapeRegex(search), 'i');
       filter.$or = [{ batchNumber: regex }, { description: regex }, { reason: regex }];
     }
+    applyDateRange(filter, req.query);
     return res.json(await paginatedResponse(Waste, { filter, query: req.query, sortDefault: { createdAt: -1 }, populate: ['product', 'batch', 'createdBy'] }));
   } catch (error) {
     return res.status(500).json({ message: 'Error consultando mermas.', error: error.message });

@@ -1,4 +1,6 @@
 const Supplier = require('../models/Supplier');
+const Purchase = require('../models/Purchase');
+const SupplierPayment = require('../models/SupplierPayment');
 const { createAuditLog } = require('../utils/auditLogger');
 const { paginatedResponse } = require('../utils/pagination');
 
@@ -45,8 +47,22 @@ const updateSupplier = async (req, res) => {
 
 const deleteSupplier = async (req, res) => {
   try {
-    const supplier = await Supplier.findByIdAndDelete(req.params.id);
+    const supplier = await Supplier.findById(req.params.id);
     if (!supplier) return res.status(404).json({ message: 'Proveedor no encontrado.' });
+
+    const [purchases, payments] = await Promise.all([
+      Purchase.countDocuments({ supplier: supplier._id }),
+      SupplierPayment.countDocuments({ supplier: supplier._id })
+    ]);
+
+    if (purchases || payments || Number(supplier.currentDebt || 0) > 0) {
+      return res.status(409).json({
+        message: 'No se puede eliminar el proveedor porque tiene compras, pagos o deuda asociada.',
+        details: { purchases, payments, currentDebt: supplier.currentDebt }
+      });
+    }
+
+    await Supplier.deleteOne({ _id: supplier._id });
     await createAuditLog({ req, action: 'DELETE', module: 'suppliers', entityId: supplier._id, entityType: 'Supplier', description: 'Proveedor eliminado', before: supplier.toObject() });
     return res.json({ message: 'Proveedor eliminado correctamente.' });
   } catch (error) {

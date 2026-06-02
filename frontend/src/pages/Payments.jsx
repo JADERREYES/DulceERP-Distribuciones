@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
+import { exportToCsv, formatDate } from '../utils/exportUtils';
 
 const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
@@ -7,6 +8,8 @@ export default function Payments() {
   const [customers, setCustomers] = useState([]);
   const [payments, setPayments] = useState([]);
   const [form, setForm] = useState({ customer: '', amount: 0, paymentMethod: 'efectivo', note: '' });
+  const [filters, setFilters] = useState({ customer: '', paymentMethod: '', from: '', to: '' });
+  const [selectedPayment, setSelectedPayment] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -14,7 +17,11 @@ export default function Payments() {
   const selectedCustomer = useMemo(() => customers.find((customer) => customer._id === form.customer), [customers, form.customer]);
 
   const loadData = async () => {
-    const [customersRes, paymentsRes] = await Promise.all([api.get('/customers'), api.get('/payments')]);
+    const params = new URLSearchParams({ limit: '100' });
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    const [customersRes, paymentsRes] = await Promise.all([api.get('/customers?limit=100'), api.get(`/payments?${params.toString()}`)]);
     setCustomers(customersRes.data.data || customersRes.data);
     setPayments(paymentsRes.data.data || paymentsRes.data);
   };
@@ -38,6 +45,21 @@ export default function Payments() {
     }
   };
 
+  const updateFilter = (field, value) => setFilters((current) => ({ ...current, [field]: value }));
+
+  const exportPayments = () => {
+    const ok = exportToCsv('pagos-filtrados.csv', payments.map((payment) => ({
+      Fecha: formatDate(payment.createdAt),
+      Cliente: payment.customer?.name || '',
+      Documento: payment.customer?.document || '',
+      Monto: payment.amount,
+      Metodo: payment.paymentMethod,
+      'Aplicado a ventas': payment.appliedToSales?.map((item) => `${formatDate(item.sale?.createdAt)} ${item.amountApplied}`).join(' | ') || '',
+      Nota: payment.note || ''
+    })));
+    if (!ok) setError('No hay pagos para exportar.');
+  };
+
   return (
     <div className="page-stack">
       <div className="page-title">
@@ -57,6 +79,7 @@ export default function Payments() {
           <label>Nota<input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
           {selectedCustomer && <div className="inline-total">Deuda actual: {money.format(selectedCustomer.currentDebt)}</div>}
           <button className="button primary" type="submit">Registrar pago</button>
+          {debtCustomers.length === 0 && <div className="notice info">No hay clientes con deuda pendiente para registrar abonos.</div>}
         </form>
 
         <div className="table-wrap">
@@ -79,9 +102,36 @@ export default function Payments() {
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}
 
+      <div className="module-toolbar">
+        <select value={filters.customer} onChange={(e) => updateFilter('customer', e.target.value)}>
+          <option value="">Todos los clientes</option>
+          {customers.map((customer) => <option key={customer._id} value={customer._id}>{customer.name}</option>)}
+        </select>
+        <select value={filters.paymentMethod} onChange={(e) => updateFilter('paymentMethod', e.target.value)}>
+          <option value="">Todos los metodos</option>
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="tarjeta">Tarjeta</option>
+          <option value="otro">Otro</option>
+        </select>
+        <input type="date" value={filters.from} onChange={(e) => updateFilter('from', e.target.value)} />
+        <input type="date" value={filters.to} onChange={(e) => updateFilter('to', e.target.value)} />
+        <button className="button primary" type="button" onClick={loadData}>Consultar</button>
+        <button className="button secondary" type="button" onClick={exportPayments}>Exportar</button>
+      </div>
+
+      {selectedPayment && (
+        <div className="detail-panel">
+          <h3>Detalle pago</h3>
+          <p>{selectedPayment.customer?.name} - {money.format(selectedPayment.amount)} - {selectedPayment.paymentMethod}</p>
+          <ul>{selectedPayment.appliedToSales?.map((item) => <li key={`${selectedPayment._id}-${item.sale?._id || item.sale}`}>Venta {formatDate(item.sale?.createdAt)}: {money.format(item.amountApplied)} aplicado</li>)}</ul>
+          <button className="button ghost" type="button" onClick={() => setSelectedPayment(null)}>Cerrar detalle</button>
+        </div>
+      )}
+
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Fecha</th><th>Cliente</th><th>Monto</th><th>Metodo</th><th>Aplicado a ventas</th><th>Nota</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Cliente</th><th>Monto</th><th>Metodo</th><th>Aplicado a ventas</th><th>Nota</th><th>Accion</th></tr></thead>
           <tbody>
             {payments.map((payment) => (
               <tr key={payment._id}>
@@ -91,6 +141,7 @@ export default function Payments() {
                 <td>{payment.paymentMethod}</td>
                 <td>{payment.appliedToSales?.length ? payment.appliedToSales.map((item) => money.format(item.amountApplied)).join(', ') : '-'}</td>
                 <td>{payment.note || '-'}</td>
+                <td><button className="button secondary" type="button" onClick={() => setSelectedPayment(payment)}>Ver</button></td>
               </tr>
             ))}
           </tbody>

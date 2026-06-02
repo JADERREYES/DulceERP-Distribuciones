@@ -1,6 +1,8 @@
 import axios from 'axios';
 
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const defaultApiUrl = import.meta.env.PROD ? '/_/backend/api' : 'http://localhost:5000/api';
+
+export const API_URL = import.meta.env.VITE_API_URL || defaultApiUrl;
 
 export const BACKEND_CONNECTION_MESSAGE =
   `No se pudo conectar con el backend. Verifica que la API este disponible en: ${API_URL}`;

@@ -172,8 +172,22 @@ const getCustomerDebtDetail = async (req, res) => {
 
 const deleteCustomer = async (req, res) => {
   try {
-    const customer = await Customer.findByIdAndDelete(req.params.id);
+    const customer = await Customer.findById(req.params.id);
     if (!customer) return res.status(404).json({ message: 'Cliente no encontrado.' });
+
+    const [sales, payments] = await Promise.all([
+      Sale.countDocuments({ customer: customer._id }),
+      Payment.countDocuments({ customer: customer._id })
+    ]);
+
+    if (sales || payments || Number(customer.currentDebt || 0) > 0) {
+      return res.status(409).json({
+        message: 'No se puede eliminar el cliente porque tiene ventas, pagos o deuda asociada.',
+        details: { sales, payments, currentDebt: customer.currentDebt }
+      });
+    }
+
+    await Customer.deleteOne({ _id: customer._id });
     await createAuditLog({
       req,
       action: 'DELETE',

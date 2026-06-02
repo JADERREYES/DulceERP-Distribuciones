@@ -7,6 +7,7 @@ const Purchase = require('../models/Purchase');
 const Supplier = require('../models/Supplier');
 const { createAuditLog } = require('../utils/auditLogger');
 const { paginatedResponse } = require('../utils/pagination');
+const { applyDateRange, escapeRegex } = require('../utils/queryFilters');
 
 const buildBatchNumber = (sku) => {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
@@ -16,17 +17,19 @@ const buildBatchNumber = (sku) => {
 
 const getPurchases = async (req, res) => {
   try {
-    const { search, status, paymentMethod, paymentStatus } = req.query;
+    const { search, status, paymentMethod, paymentStatus, supplier } = req.query;
     const filter = {};
     if (status) filter.status = status;
     if (paymentMethod) filter.paymentMethod = paymentMethod;
     if (paymentStatus) filter.paymentStatus = paymentStatus;
+    if (supplier) filter.supplier = supplier;
     if (search) {
-      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const regex = new RegExp(escapeRegex(search), 'i');
       const suppliers = await Supplier.find({ $or: [{ name: regex }, { document: regex }] }).select('_id');
       filter.$or = [{ invoiceNumber: regex }, { supplier: { $in: suppliers.map((supplier) => supplier._id) } }];
       if (mongoose.Types.ObjectId.isValid(search)) filter.$or.push({ _id: search });
     }
+    applyDateRange(filter, req.query);
     return res.json(await paginatedResponse(Purchase, { filter, query: req.query, sortDefault: { createdAt: -1 }, populate: ['supplier', 'items.product', 'createdBy'] }));
   } catch (error) {
     return res.status(500).json({ message: 'Error consultando compras.', error: error.message });

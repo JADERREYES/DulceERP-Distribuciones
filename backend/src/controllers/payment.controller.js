@@ -4,17 +4,20 @@ const Payment = require('../models/Payment');
 const Sale = require('../models/Sale');
 const { createAuditLog } = require('../utils/auditLogger');
 const { paginatedResponse } = require('../utils/pagination');
+const { applyDateRange, escapeRegex } = require('../utils/queryFilters');
 
 const getPayments = async (req, res) => {
   try {
-    const { search, paymentMethod } = req.query;
+    const { search, paymentMethod, customer } = req.query;
     const filter = {};
     if (paymentMethod) filter.paymentMethod = paymentMethod;
+    if (customer) filter.customer = customer;
     if (search) {
-      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const regex = new RegExp(escapeRegex(search), 'i');
       const customers = await Customer.find({ $or: [{ name: regex }, { document: regex }] }).select('_id');
       filter.$or = [{ paymentMethod: regex }, { customer: { $in: customers.map((customer) => customer._id) } }];
     }
+    applyDateRange(filter, req.query);
 
     return res.json(
       await paginatedResponse(Payment, {

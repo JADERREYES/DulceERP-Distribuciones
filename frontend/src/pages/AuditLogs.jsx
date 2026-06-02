@@ -1,15 +1,16 @@
 import { useEffect, useState } from 'react';
 import api from '../api/axios';
 import { useAuth } from '../context/AuthContext';
+import { exportToCsv, formatDate } from '../utils/exportUtils';
 
 const actions = ['CREATE', 'UPDATE', 'DELETE', 'CANCEL', 'PAYMENT', 'LOGIN', 'LOGOUT', 'STOCK_DECREASE', 'STOCK_INCREASE', 'STATUS_CHANGE'];
-const modules = ['auth', 'products', 'customers', 'sales', 'payments', 'expenses', 'dashboard', 'reports'];
+const modules = ['auth', 'products', 'customers', 'sales', 'payments', 'suppliers', 'purchases', 'supplierPayments', 'batches', 'wastes', 'expenses', 'dashboard', 'reports'];
 
 export default function AuditLogs() {
   const { user } = useAuth();
   const [logs, setLogs] = useState([]);
   const [pagination, setPagination] = useState({ page: 1, totalPages: 1, total: 0 });
-  const [filters, setFilters] = useState({ module: '', action: '', search: '', page: 1 });
+  const [filters, setFilters] = useState({ module: '', action: '', search: '', from: '', to: '', page: 1 });
   const [error, setError] = useState('');
 
   const canView = ['admin', 'contador'].includes(user?.role);
@@ -45,6 +46,19 @@ export default function AuditLogs() {
     loadLogs(next);
   };
 
+  const exportLogs = () => {
+    const ok = exportToCsv('auditoria-filtrada.csv', logs.map((log) => ({
+      Fecha: formatDate(log.createdAt, true),
+      Usuario: log.userName || log.userEmail || '',
+      Rol: log.userRole || '',
+      Accion: log.action,
+      Modulo: log.module,
+      Entidad: log.entityType || '',
+      Descripcion: log.description || ''
+    })));
+    if (!ok) setError('No hay registros de auditoria para exportar.');
+  };
+
   return (
     <div className="page-stack">
       <div className="page-title">
@@ -62,8 +76,11 @@ export default function AuditLogs() {
           <option value="">Todas las acciones</option>
           {actions.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
+        <input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />
+        <input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
         <button className="button secondary" type="button" onClick={() => updateFilters({ search: filters.search })}>Buscar</button>
         <button className="button primary" type="button" onClick={() => loadLogs()}>Actualizar</button>
+        <button className="button secondary" type="button" onClick={exportLogs}>Exportar</button>
       </div>
 
       {error && <p className="error">{error}</p>}

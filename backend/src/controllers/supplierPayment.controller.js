@@ -4,17 +4,20 @@ const Supplier = require('../models/Supplier');
 const SupplierPayment = require('../models/SupplierPayment');
 const { createAuditLog } = require('../utils/auditLogger');
 const { paginatedResponse } = require('../utils/pagination');
+const { applyDateRange, escapeRegex } = require('../utils/queryFilters');
 
 const getSupplierPayments = async (req, res) => {
   try {
-    const { search, paymentMethod } = req.query;
+    const { search, paymentMethod, supplier } = req.query;
     const filter = {};
     if (paymentMethod) filter.paymentMethod = paymentMethod;
+    if (supplier) filter.supplier = supplier;
     if (search) {
-      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const regex = new RegExp(escapeRegex(search), 'i');
       const suppliers = await Supplier.find({ $or: [{ name: regex }, { document: regex }] }).select('_id');
       filter.$or = [{ paymentMethod: regex }, { supplier: { $in: suppliers.map((supplier) => supplier._id) } }];
     }
+    applyDateRange(filter, req.query);
     return res.json(await paginatedResponse(SupplierPayment, { filter, query: req.query, sortDefault: { createdAt: -1 }, populate: ['supplier', 'createdBy', { path: 'appliedToPurchases.purchase', select: 'total paidAmount balance paymentStatus invoiceNumber createdAt' }] }));
   } catch (error) {
     return res.status(500).json({ message: 'Error consultando pagos a proveedores.', error: error.message });

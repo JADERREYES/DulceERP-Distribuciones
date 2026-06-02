@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../api/axios';
+import { exportToCsv } from '../utils/exportUtils';
 
 const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 const number = new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 });
@@ -101,6 +102,29 @@ export default function Reports() {
 
   const applyPeriod = (period) => setFilters(periodRange(period));
 
+  const exportReportData = () => {
+    if (!reports) {
+      setError('Ejecute una consulta antes de exportar.');
+      return;
+    }
+    const rows = [
+      { Seccion: 'Resumen', Concepto: 'Ventas', Valor: reports.summary.sales, Detalle: `${reports.income.salesCount} ventas activas` },
+      { Seccion: 'Resumen', Concepto: 'Utilidad neta', Valor: reports.summary.netProfit, Detalle: `Margen neto ${reports.income.netMargin}%` },
+      { Seccion: 'Resumen', Concepto: 'Inventario valorizado', Valor: reports.summary.inventoryValue, Detalle: 'Stock x costo producto' },
+      { Seccion: 'Resumen', Concepto: 'Cuentas por cobrar', Valor: reports.summary.receivables, Detalle: `${reports.receivables.customersWithDebt} clientes` },
+      { Seccion: 'Resumen', Concepto: 'Cuentas por pagar', Valor: reports.summary.payables, Detalle: `${reports.payables.suppliersWithDebt} proveedores` },
+      { Seccion: 'Resumen', Concepto: 'Mermas', Valor: reports.summary.wastes, Detalle: `${reports.wastes.wasteCount} registros` },
+      { Seccion: 'Estado resultados', Concepto: 'Ventas contado', Valor: reports.income.cashSales, Detalle: '' },
+      { Seccion: 'Estado resultados', Concepto: 'Ventas credito', Valor: reports.income.creditSales, Detalle: '' },
+      { Seccion: 'Estado resultados', Concepto: 'CMV', Valor: reports.income.totalCMV, Detalle: '' },
+      { Seccion: 'Estado resultados', Concepto: 'Gastos operacionales', Valor: reports.income.operationalExpenses, Detalle: '' },
+      ...list(reports.receivables.topCustomersByDebt).map((customer) => ({ Seccion: 'Cartera', Concepto: customer.name, Valor: customer.currentDebt, Detalle: `${customer.document} ${customer.status}` })),
+      ...list(reports.payables.topSuppliersByDebt).map((supplier) => ({ Seccion: 'Proveedores', Concepto: supplier.name, Valor: supplier.currentDebt, Detalle: `${supplier.document} ${supplier.status}` })),
+      ...list(reports.wastes.wastesByReason).map((item) => ({ Seccion: 'Mermas', Concepto: item.name, Valor: item.totalCost, Detalle: `${item.count} registros` }))
+    ];
+    exportToCsv('reportes-ejecutivos.csv', rows);
+  };
+
   if (!reports && loading) return <p>Cargando reportes ejecutivos...</p>;
 
   return (
@@ -118,6 +142,7 @@ export default function Reports() {
         <label>Desde<input type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value, label: 'Personalizado' })} /></label>
         <label>Hasta<input type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value, label: 'Personalizado' })} /></label>
         <button className="button primary" type="button" onClick={loadReports} disabled={loading}>{loading ? 'Consultando...' : 'Consultar'}</button>
+        <button className="button secondary" type="button" onClick={exportReportData}>Exportar datos</button>
         <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir reporte</button>
       </section>
 
