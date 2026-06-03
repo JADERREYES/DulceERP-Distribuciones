@@ -397,6 +397,196 @@ select {
   gap: 18px;
 }
 
+.dashboard-layout {
+  display: grid;
+  gap: 18px;
+}
+
+.dashboard-header {
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.dashboard-header h2 {
+  margin: 0;
+  color: var(--blue-950);
+  font-size: 26px;
+}
+
+.dashboard-header p {
+  color: var(--gray-500);
+  margin: 4px 0 0;
+}
+
+.dashboard-header-actions,
+.dashboard-controls,
+.dashboard-export-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.dashboard-controls {
+  justify-content: space-between;
+}
+
+.dashboard-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.dashboard-tabs button {
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--gray-500);
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.dashboard-tabs button.active {
+  color: var(--blue-900);
+  border-bottom-color: var(--blue-900);
+}
+
+.dashboard-section {
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.dashboard-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  gap: 12px;
+}
+
+.dashboard-kpi-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.dashboard-chart-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.secondary-indicators {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+  gap: 12px;
+}
+
+.alert-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr)) auto;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.alert-summary-item {
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  padding: 14px;
+  display: grid;
+  gap: 4px;
+}
+
+.alert-summary-item span,
+.alert-summary-item small {
+  color: var(--gray-500);
+}
+
+.alert-summary-item strong {
+  font-size: 26px;
+  color: var(--blue-950);
+}
+
+.alert-summary-item.alert-critical {
+  border-left: 5px solid var(--red);
+}
+
+.alert-summary-item.alert-warning {
+  border-left: 5px solid var(--yellow);
+}
+
+.alert-summary-item.alert-info {
+  border-left: 5px solid #2563eb;
+}
+
+.alert-groups {
+  display: grid;
+  gap: 18px;
+}
+
+.alert-group h4 {
+  margin: 0 0 10px;
+  color: var(--blue-950);
+}
+
+.alert-list.compact {
+  grid-template-columns: 1fr;
+}
+
+.alert-item {
+  align-items: flex-start;
+}
+
+.alert-item > .button {
+  margin-left: auto;
+  white-space: nowrap;
+  padding: 8px 10px;
+}
+
+.compact-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--gray-800);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.compact-status > span {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--gray-500);
+}
+
+.compact-status.connected > span {
+  background: var(--green);
+}
+
+.compact-status.disconnected > span {
+  background: var(--red);
+}
+
+.compact-status.connected strong {
+  color: var(--green);
+}
+
+.compact-status.disconnected strong {
+  color: var(--red);
+}
+
+.compact-status .button {
+  padding: 6px 9px;
+  font-size: 12px;
+}
+
 .chart-card {
   background: var(--white);
   border: 1px solid var(--gray-200);
@@ -786,6 +976,18 @@ th {
     grid-template-columns: 1fr;
   }
 
+  .dashboard-header,
+  .dashboard-controls {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .dashboard-kpi-grid,
+  .dashboard-chart-grid,
+  .alert-summary {
+    grid-template-columns: 1fr;
+  }
+
   .executive-header {
     align-items: stretch;
     flex-direction: column;
@@ -805,6 +1007,7 @@ th {
   .navbar,
   .breadcrumbs,
   .no-print,
+  .dashboard-tabs,
   .button {
     display: none !important;
   }
@@ -824,9 +1027,12 @@ th {
   }
 
   .executive-header,
+  .dashboard-header,
+  .dashboard-section,
   .chart-card,
   .kpi-card,
   .alert-panel,
+  .alert-summary-item,
   .table-wrap {
     border: 1px solid #cfd8e3;
     box-shadow: none;
@@ -834,7 +1040,11 @@ th {
   }
 
   .kpi-grid,
-  .dashboard-grid {
+  .dashboard-grid,
+  .dashboard-kpi-grid,
+  .dashboard-chart-grid,
+  .secondary-indicators,
+  .alert-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

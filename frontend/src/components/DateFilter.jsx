@@ -1,7 +1,7 @@
 const options = [
   { value: 'today', label: 'Hoy' },
-  { value: '7d', label: 'Ultimos 7 dias' },
-  { value: '30d', label: 'Ultimos 30 dias' },
+  { value: '7d', label: 'Últimos 7 días' },
+  { value: '30d', label: 'Últimos 30 días' },
   { value: 'month', label: 'Mes actual' },
   { value: 'quarter', label: 'Trimestre' }
 ];
