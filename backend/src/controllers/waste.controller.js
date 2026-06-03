@@ -9,10 +9,11 @@ const { applyDateRange, escapeRegex } = require('../utils/queryFilters');
 
 const getWastes = async (req, res) => {
   try {
-    const { reason, product, search } = req.query;
+    const { reason, product, batch, search } = req.query;
     const filter = {};
     if (reason) filter.reason = reason;
     if (product) filter.product = product;
+    if (batch) filter.batch = batch;
     if (search) {
       const regex = new RegExp(escapeRegex(search), 'i');
       filter.$or = [{ batchNumber: regex }, { description: regex }, { reason: regex }];

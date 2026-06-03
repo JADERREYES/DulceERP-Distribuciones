@@ -32,6 +32,11 @@ const expenseSchema = new mongoose.Schema(
       type: Date,
       default: Date.now
     },
+    paymentMethod: {
+      type: String,
+      enum: ['efectivo', 'transferencia', 'tarjeta', 'otro'],
+      default: 'efectivo'
+    },
     description: {
       type: String,
       trim: true

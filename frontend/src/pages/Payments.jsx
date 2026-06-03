@@ -79,7 +79,7 @@ export default function Payments() {
           <label>Nota<input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
           {selectedCustomer && <div className="inline-total">Deuda actual: {money.format(selectedCustomer.currentDebt)}</div>}
           <button className="button primary" type="submit">Registrar pago</button>
-          {debtCustomers.length === 0 && <div className="notice info">No hay clientes con deuda pendiente para registrar abonos.</div>}
+          {debtCustomers.length === 0 && <div className="notice info">No hay clientes con deuda pendiente.</div>}
         </form>
 
         <div className="table-wrap">
@@ -118,6 +118,7 @@ export default function Payments() {
         <input type="date" value={filters.to} onChange={(e) => updateFilter('to', e.target.value)} />
         <button className="button primary" type="button" onClick={loadData}>Consultar</button>
         <button className="button secondary" type="button" onClick={exportPayments}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
 
       {selectedPayment && (

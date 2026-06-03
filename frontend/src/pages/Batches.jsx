@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
+import { exportToCsv, formatCurrency, formatDate } from '../utils/exportUtils';
 
 const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
@@ -16,7 +17,8 @@ export default function Batches() {
   const [batches, setBatches] = useState([]);
   const [expiredWithStock, setExpiredWithStock] = useState([]);
   const [products, setProducts] = useState([]);
-  const [filters, setFilters] = useState({ search: '', product: '', status: '' });
+  const [suppliers, setSuppliers] = useState([]);
+  const [filters, setFilters] = useState({ search: '', product: '', status: '', supplier: '', from: '', to: '' });
   const [selectedExpiredBatch, setSelectedExpiredBatch] = useState(null);
   const [wasteForm, setWasteForm] = useState({ quantity: '', description: 'Merma por lote vencido' });
   const [blockReason, setBlockReason] = useState('');
@@ -25,9 +27,10 @@ export default function Batches() {
   const [success, setSuccess] = useState('');
 
   const load = async () => {
-    const [batchRes, productRes, expiredRes] = await Promise.all([api.get('/batches'), api.get('/products'), api.get('/batches/expired-with-stock')]);
+    const [batchRes, productRes, supplierRes, expiredRes] = await Promise.all([api.get('/batches?limit=100'), api.get('/products?limit=100'), api.get('/suppliers?limit=100'), api.get('/batches/expired-with-stock')]);
     setBatches(batchRes.data.data || batchRes.data);
     setProducts(productRes.data.data || productRes.data);
+    setSuppliers(supplierRes.data.data || supplierRes.data);
     setExpiredWithStock(expiredRes.data.data || expiredRes.data);
   };
 
@@ -107,8 +110,26 @@ export default function Batches() {
     const text = `${batch.batchNumber} ${batch.product?.name || ''} ${batch.product?.sku || ''}`.toLowerCase();
     return (!filters.search || text.includes(filters.search.toLowerCase()))
       && (!filters.product || batch.product?._id === filters.product)
-      && (!filters.status || batch.status === filters.status);
+      && (!filters.status || batch.status === filters.status)
+      && (!filters.supplier || batch.supplier?._id === filters.supplier)
+      && (!filters.from || new Date(batch.expirationDate) >= new Date(filters.from))
+      && (!filters.to || new Date(batch.expirationDate) <= new Date(`${filters.to}T23:59:59`));
   }), [batches, filters]);
+
+  const exportBatches = () => {
+    const ok = exportToCsv('lotes-filtrados.csv', filtered.map((batch) => ({
+      Lote: batch.batchNumber,
+      Producto: batch.product?.name || '',
+      SKU: batch.product?.sku || '',
+      Proveedor: batch.supplier?.name || '',
+      Inicial: batch.initialQuantity,
+      Disponible: batch.availableQuantity,
+      Costo: batch.unitCost,
+      Vencimiento: formatDate(batch.expirationDate),
+      Estado: batch.status
+    })));
+    if (!ok) setError('No hay lotes para exportar.');
+  };
 
   return (
     <div className="page-stack">
@@ -121,7 +142,14 @@ export default function Batches() {
         <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
           <option value="">Todos los estados</option><option value="disponible">Disponible</option><option value="proximo_vencer">Proximo a vencer</option><option value="vencido">Vencido</option><option value="agotado">Agotado</option><option value="bloqueado">Bloqueado</option>
         </select>
+        <select value={filters.supplier} onChange={(e) => setFilters({ ...filters, supplier: e.target.value })}>
+          <option value="">Todos los proveedores</option>{suppliers.map((supplier) => <option key={supplier._id} value={supplier._id}>{supplier.name}</option>)}
+        </select>
+        <input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />
+        <input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
         <button className="button primary" type="button" onClick={load}>Actualizar</button>
+        <button className="button secondary" type="button" onClick={exportBatches}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}
@@ -146,7 +174,7 @@ export default function Batches() {
                   <td>{new Date(batch.expirationDate).toLocaleDateString('es-CO')}</td>
                   <td>{batch.daysExpired}</td>
                   <td>{money.format(batch.unitCost)}</td>
-                  <td>{money.format(batch.totalCost)}</td>
+                  <td>{formatCurrency(batch.totalCost)}</td>
                   <td>{batch.supplier?.name || '-'}</td>
                   <td><span className={`badge ${batch.status}`}>{batch.status}</span></td>
                   <td><button className="button secondary" type="button" onClick={() => selectExpiredBatch(batch)}>Gestionar</button></td>

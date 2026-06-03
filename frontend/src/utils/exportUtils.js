@@ -8,6 +8,20 @@ export const formatDate = (value, withTime = false) => {
   return withTime ? date.toLocaleString('es-CO') : date.toLocaleDateString('es-CO');
 };
 
+export const normalizeRowsForExport = (rows, columns) => {
+  if (!Array.isArray(rows)) return [];
+  if (!Array.isArray(columns) || columns.length === 0) return rows;
+
+  return rows.map((row) =>
+    columns.reduce((exportRow, column) => {
+      const header = column.header || column.label || column.key;
+      const value = typeof column.value === 'function' ? column.value(row) : row[column.key];
+      exportRow[header] = value ?? '';
+      return exportRow;
+    }, {})
+  );
+};
+
 const csvValue = (value) => {
   if (value === null || value === undefined) return '';
   const text = String(value).replace(/"/g, '""');

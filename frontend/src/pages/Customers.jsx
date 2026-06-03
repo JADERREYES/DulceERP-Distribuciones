@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
+import { useAuth } from '../context/AuthContext';
+import { exportToCsv } from '../utils/exportUtils';
 
 const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
@@ -21,6 +23,7 @@ const usagePercent = (customer) => {
 };
 
 export default function Customers() {
+  const { user } = useAuth();
   const [customers, setCustomers] = useState([]);
   const [form, setForm] = useState(initialForm);
   const [editingCustomer, setEditingCustomer] = useState(null);
@@ -140,6 +143,32 @@ export default function Customers() {
     }
   };
 
+  const deleteCustomer = async (customer) => {
+    if (!window.confirm(`Eliminar cliente "${customer.name}" solo es permitido si no tiene ventas, pagos ni deuda. Continuar?`)) return;
+    try {
+      await api.delete(`/customers/${customer._id}`);
+      setSuccess('Cliente eliminado correctamente.');
+      await loadCustomers();
+    } catch (err) {
+      setError(err.userMessage || err.response?.data?.message || 'Error eliminando cliente.');
+    }
+  };
+
+  const exportCustomers = () => {
+    const ok = exportToCsv('clientes-filtrados.csv', filteredCustomers.map((customer) => ({
+      Cliente: customer.name,
+      Documento: customer.document,
+      Telefono: customer.phone || '',
+      Email: customer.email || '',
+      Tipo: customer.type || '',
+      Zona: customer.zone || '',
+      Cupo: customer.creditLimit || 0,
+      Deuda: customer.currentDebt || 0,
+      Estado: customer.status || ''
+    })));
+    if (!ok) setError('No hay clientes para exportar.');
+  };
+
   return (
     <div className="page-stack">
       <div className="page-title">
@@ -155,6 +184,8 @@ export default function Customers() {
           <option value="riesgo">Riesgo</option>
           <option value="bloqueado">Bloqueado</option>
         </select>
+        <button className="button secondary" type="button" onClick={exportCustomers}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
       <form className="form-grid" onSubmit={handleSubmit}>
         <label>Nombre<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></label>
@@ -230,6 +261,7 @@ export default function Customers() {
                 <td>
                   <button className="button secondary" type="button" onClick={() => editCustomer(customer)}>Editar</button>
                   <button className="button ghost" type="button" onClick={() => viewDebt(customer)}>Ver deuda</button>
+                  {user?.role === 'admin' && <button className="button danger" type="button" onClick={() => deleteCustomer(customer)}>Eliminar</button>}
                 </td>
               </tr>
             ))}

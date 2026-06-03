@@ -3,16 +3,21 @@ const Purchase = require('../models/Purchase');
 const SupplierPayment = require('../models/SupplierPayment');
 const { createAuditLog } = require('../utils/auditLogger');
 const { paginatedResponse } = require('../utils/pagination');
+const { applyDateRange } = require('../utils/queryFilters');
 
 const getSuppliers = async (req, res) => {
   try {
-    const { search, status } = req.query;
+    const { search, status, city, debt } = req.query;
     const filter = {};
     if (search) {
       const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       filter.$or = [{ name: regex }, { document: regex }, { phone: regex }, { email: regex }, { city: regex }];
     }
     if (status) filter.status = status;
+    if (city) filter.city = new RegExp(city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+    if (debt === 'withDebt') filter.currentDebt = { $gt: 0 };
+    if (debt === 'withoutDebt') filter.currentDebt = { $lte: 0 };
+    applyDateRange(filter, req.query);
     return res.json(await paginatedResponse(Supplier, { filter, query: req.query, sortDefault: { createdAt: -1 } }));
   } catch (error) {
     return res.status(500).json({ message: 'Error consultando proveedores.', error: error.message });

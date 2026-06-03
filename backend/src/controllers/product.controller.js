@@ -4,11 +4,12 @@ const ProductBatch = require('../models/ProductBatch');
 const Purchase = require('../models/Purchase');
 const Sale = require('../models/Sale');
 const { paginatedResponse } = require('../utils/pagination');
+const { applyDateRange } = require('../utils/queryFilters');
 const { createAuditLog } = require('../utils/auditLogger');
 
 const getProducts = async (req, res) => {
   try {
-    const { search, status, category } = req.query;
+    const { search, status, category, stockLow } = req.query;
     const filter = {};
     if (search) {
       const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
@@ -16,6 +17,8 @@ const getProducts = async (req, res) => {
     }
     if (status) filter.status = status;
     if (category) filter.category = category;
+    if (stockLow === 'true') filter.$expr = { $lte: ['$stock', '$minStock'] };
+    applyDateRange(filter, req.query);
 
     return res.json(await paginatedResponse(Product, { filter, query: req.query, sortDefault: { createdAt: -1 } }));
   } catch (error) {
@@ -120,7 +123,7 @@ const deleteProduct = async (req, res) => {
 
     if (sales || purchases || batches || movements) {
       return res.status(409).json({
-        message: 'No se puede eliminar porque tiene movimientos asociados.',
+        message: 'No se puede eliminar el producto porque tiene movimientos asociados.',
         details: { sales, purchases, batches, movements }
       });
     }

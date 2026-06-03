@@ -80,6 +80,7 @@ export default function SupplierPayments() {
         <input type="date" value={filters.to} onChange={(e) => updateFilter('to', e.target.value)} />
         <button className="button primary" type="button" onClick={load}>Consultar</button>
         <button className="button secondary" type="button" onClick={exportPayments}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
       {selectedPayment && (
         <div className="detail-panel">

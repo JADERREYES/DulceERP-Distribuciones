@@ -81,6 +81,7 @@ export default function AuditLogs() {
         <button className="button secondary" type="button" onClick={() => updateFilters({ search: filters.search })}>Buscar</button>
         <button className="button primary" type="button" onClick={() => loadLogs()}>Actualizar</button>
         <button className="button secondary" type="button" onClick={exportLogs}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
 
       {error && <p className="error">{error}</p>}

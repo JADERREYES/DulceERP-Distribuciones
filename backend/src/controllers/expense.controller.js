@@ -1,16 +1,19 @@
 const Expense = require('../models/Expense');
 const { paginatedResponse } = require('../utils/pagination');
+const { applyDateRange, escapeRegex } = require('../utils/queryFilters');
 const { createAuditLog } = require('../utils/auditLogger');
 
 const getExpenses = async (req, res) => {
   try {
-    const { search, category } = req.query;
+    const { search, category, paymentMethod } = req.query;
     const filter = {};
     if (search) {
-      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-      filter.$or = [{ concept: regex }, { category: regex }];
+      const regex = new RegExp(escapeRegex(search), 'i');
+      filter.$or = [{ concept: regex }, { category: regex }, { description: regex }, { paymentMethod: regex }];
     }
     if (category) filter.category = category;
+    if (paymentMethod) filter.paymentMethod = paymentMethod;
+    applyDateRange(filter, req.query, 'date');
     return res.json(await paginatedResponse(Expense, { filter, query: req.query, sortDefault: { date: -1 } }));
   } catch (error) {
     return res.status(500).json({ message: 'Error consultando gastos.', error: error.message });

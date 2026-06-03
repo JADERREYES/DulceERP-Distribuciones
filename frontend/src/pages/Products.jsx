@@ -19,7 +19,7 @@ export default function Products() {
   const [editingId, setEditingId] = useState(null);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [error, setError] = useState('');
-  const [filters, setFilters] = useState({ q: '', status: '', category: '' });
+  const [filters, setFilters] = useState({ q: '', status: '', category: '', stockLow: '', from: '', to: '' });
 
   const loadProducts = () => api.get('/products').then(({ data }) => setProducts(data.data || data));
   const categories = useMemo(() => [...new Set(products.map((product) => product.category).filter(Boolean))], [products]);
@@ -30,7 +30,14 @@ export default function Products() {
         const matchesText = !q || product.name.toLowerCase().includes(q) || product.sku.toLowerCase().includes(q);
         const matchesStatus = !filters.status || product.status === filters.status;
         const matchesCategory = !filters.category || product.category === filters.category;
-        return matchesText && matchesStatus && matchesCategory;
+        const matchesStockLow = filters.stockLow !== 'true' || Number(product.stock || 0) <= Number(product.minStock || 0);
+        const createdAt = product.createdAt ? new Date(product.createdAt) : null;
+        const from = filters.from ? new Date(filters.from) : null;
+        const to = filters.to ? new Date(filters.to) : null;
+        if (to) to.setHours(23, 59, 59, 999);
+        const matchesFrom = !from || (createdAt && createdAt >= from);
+        const matchesTo = !to || (createdAt && createdAt <= to);
+        return matchesText && matchesStatus && matchesCategory && matchesStockLow && matchesFrom && matchesTo;
       }),
     [products, filters]
   );
@@ -114,7 +121,14 @@ export default function Products() {
           <option value="">Todas las categorias</option>
           {categories.map((category) => <option key={category} value={category}>{category}</option>)}
         </select>
+        <select value={filters.stockLow} onChange={(e) => setFilters({ ...filters, stockLow: e.target.value })}>
+          <option value="">Todo el stock</option>
+          <option value="true">Stock bajo</option>
+        </select>
+        <input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />
+        <input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
         <button className="button secondary" type="button" onClick={exportProducts}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
       <form className="form-grid" onSubmit={handleSubmit}>
         {['name', 'category', 'sku'].map((field) => (

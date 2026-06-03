@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
 import { exportToCsv } from '../utils/exportUtils';
 
@@ -11,9 +11,25 @@ export default function Suppliers() {
   const [editingId, setEditingId] = useState(null);
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [error, setError] = useState('');
+  const [filters, setFilters] = useState({ search: '', status: '', city: '', debt: '', from: '', to: '' });
 
   const load = () => api.get('/suppliers').then(({ data }) => setSuppliers(data.data || data));
   useEffect(() => { load().catch((err) => setError(err.userMessage || err.response?.data?.message || 'Error cargando proveedores.')); }, []);
+
+  const filteredSuppliers = useMemo(() => suppliers.filter((supplier) => {
+    const q = filters.search.toLowerCase();
+    const text = `${supplier.name || ''} ${supplier.document || ''} ${supplier.phone || ''} ${supplier.email || ''}`.toLowerCase();
+    const createdAt = supplier.createdAt ? new Date(supplier.createdAt) : null;
+    const from = filters.from ? new Date(filters.from) : null;
+    const to = filters.to ? new Date(filters.to) : null;
+    if (to) to.setHours(23, 59, 59, 999);
+    return (!q || text.includes(q))
+      && (!filters.status || supplier.status === filters.status)
+      && (!filters.city || (supplier.city || '').toLowerCase().includes(filters.city.toLowerCase()))
+      && (!filters.debt || (filters.debt === 'withDebt' ? Number(supplier.currentDebt || 0) > 0 : Number(supplier.currentDebt || 0) <= 0))
+      && (!from || (createdAt && createdAt >= from))
+      && (!to || (createdAt && createdAt <= to));
+  }), [suppliers, filters]);
 
   const submit = async (event) => {
     event.preventDefault();
@@ -58,7 +74,7 @@ export default function Suppliers() {
   };
 
   const exportSuppliers = () => {
-    const ok = exportToCsv('proveedores.csv', suppliers.map((supplier) => ({
+    const ok = exportToCsv('proveedores-filtrados.csv', filteredSuppliers.map((supplier) => ({
       Proveedor: supplier.name,
       NIT: supplier.document,
       Telefono: supplier.phone || '',
@@ -75,7 +91,23 @@ export default function Suppliers() {
     <div className="page-stack">
       <div className="page-title"><h2>Proveedores</h2><p>Empresas que abastecen mercancia a la distribuidora.</p></div>
       <div className="module-toolbar">
+        <input placeholder="Buscar proveedor, NIT o contacto" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
+        <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+          <option value="">Todos los estados</option>
+          <option value="activo">Activo</option>
+          <option value="riesgo">Riesgo</option>
+          <option value="bloqueado">Bloqueado</option>
+        </select>
+        <input placeholder="Ciudad" value={filters.city} onChange={(e) => setFilters({ ...filters, city: e.target.value })} />
+        <select value={filters.debt} onChange={(e) => setFilters({ ...filters, debt: e.target.value })}>
+          <option value="">Todas las deudas</option>
+          <option value="withDebt">Con deuda</option>
+          <option value="withoutDebt">Sin deuda</option>
+        </select>
+        <input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />
+        <input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
         <button className="button secondary" type="button" onClick={exportSuppliers}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
       <form className="form-grid" onSubmit={submit}>
         <label>Nombre<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></label>
@@ -100,7 +132,7 @@ export default function Suppliers() {
         </div>
       )}
       <div className="table-wrap"><table><thead><tr><th>Proveedor</th><th>NIT</th><th>Ciudad</th><th>Cupo</th><th>Deuda</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
-        {suppliers.map((supplier) => <tr key={supplier._id} className={`row-${supplier.status}`}><td>{supplier.name}</td><td>{supplier.document}</td><td>{supplier.city || '-'}</td><td>{money.format(supplier.creditLimit)}</td><td>{money.format(supplier.currentDebt)}</td><td><span className={`badge ${supplier.status}`}>{supplier.status}</span></td><td><button className="button secondary" type="button" onClick={() => setSelectedSupplier(supplier)}>Ver</button><button className="button secondary" type="button" onClick={() => editSupplier(supplier)}>Editar</button><button className="button danger" type="button" onClick={() => deleteSupplier(supplier)}>Eliminar</button></td></tr>)}
+        {filteredSuppliers.map((supplier) => <tr key={supplier._id} className={`row-${supplier.status}`}><td>{supplier.name}</td><td>{supplier.document}</td><td>{supplier.city || '-'}</td><td>{money.format(supplier.creditLimit)}</td><td>{money.format(supplier.currentDebt)}</td><td><span className={`badge ${supplier.status}`}>{supplier.status}</span></td><td><button className="button secondary" type="button" onClick={() => setSelectedSupplier(supplier)}>Ver</button><button className="button secondary" type="button" onClick={() => editSupplier(supplier)}>Editar</button><button className="button danger" type="button" onClick={() => deleteSupplier(supplier)}>Eliminar</button></td></tr>)}
       </tbody></table></div>
     </div>
   );

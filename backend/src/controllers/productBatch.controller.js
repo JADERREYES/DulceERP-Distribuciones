@@ -12,10 +12,11 @@ const refreshStatuses = async (batches) => {
 };
 
 const buildFilter = async (query) => {
-  const { product, status, from, to, search } = query;
+  const { product, status, supplier, from, to, search } = query;
   const filter = {};
   if (product) filter.product = product;
   if (status) filter.status = status;
+  if (supplier) filter.supplier = supplier;
   if (from || to) {
     filter.expirationDate = {};
     if (from) filter.expirationDate.$gte = new Date(from);
