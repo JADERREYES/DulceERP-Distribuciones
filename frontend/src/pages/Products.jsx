@@ -17,6 +17,7 @@ export default function Products() {
   const [products, setProducts] = useState([]);
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({ q: '', status: '', category: '', stockLow: '', from: '', to: '' });
@@ -57,6 +58,7 @@ export default function Products() {
       }
       setForm(initialForm);
       setEditingId(null);
+      setShowForm(false);
       await loadProducts();
     } catch (err) {
       setError(err.response?.data?.message || 'Error creando producto.');
@@ -65,6 +67,7 @@ export default function Products() {
 
   const editProduct = (product) => {
     setEditingId(product._id);
+    setShowForm(true);
     setForm({
       name: product.name || '',
       category: product.category || '',
@@ -75,6 +78,19 @@ export default function Products() {
       salePrice: Number(product.salePrice || 0),
       expirationDate: product.expirationDate ? new Date(product.expirationDate).toISOString().slice(0, 10) : ''
     });
+  };
+
+  const startNewProduct = () => {
+    setEditingId(null);
+    setForm(initialForm);
+    setShowForm(true);
+    setError('');
+  };
+
+  const cancelForm = () => {
+    setEditingId(null);
+    setForm(initialForm);
+    setShowForm(false);
   };
 
   const deleteProduct = async (product) => {
@@ -109,6 +125,7 @@ export default function Products() {
         <p>Inventario, costos, precios y niveles minimos.</p>
       </div>
       <div className="module-toolbar">
+        <button className="button primary" type="button" onClick={startNewProduct}>Nuevo producto</button>
         <input placeholder="Buscar por nombre o SKU" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} />
         <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
           <option value="">Todos los estados</option>
@@ -130,7 +147,8 @@ export default function Products() {
         <button className="button secondary" type="button" onClick={exportProducts}>Exportar</button>
         <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
-      <form className="form-grid" onSubmit={handleSubmit}>
+      {showForm && <form className="form-grid" onSubmit={handleSubmit}>
+        <div className="section-heading wide"><h3>{editingId ? 'Editando producto' : 'Nuevo producto'}</h3><span>Inventario principal</span></div>
         {['name', 'category', 'sku'].map((field) => (
           <label key={field}>
             {field === 'name' ? 'Nombre' : field === 'category' ? 'Categoria' : 'SKU'}
@@ -158,8 +176,8 @@ export default function Products() {
           <input type="date" value={form.expirationDate} onChange={(e) => setForm({ ...form, expirationDate: e.target.value })} />
         </label>
         <button className="button primary" type="submit">{editingId ? 'Guardar cambios' : 'Crear producto'}</button>
-        {editingId && <button className="button ghost" type="button" onClick={() => { setEditingId(null); setForm(initialForm); }}>Cancelar edicion</button>}
-      </form>
+        <button className="button ghost" type="button" onClick={cancelForm}>Cancelar</button>
+      </form>}
       {error && <p className="error">{error}</p>}
       {selectedProduct && (
         <div className="detail-panel">
@@ -187,6 +205,7 @@ export default function Products() {
             </tr>
           </thead>
           <tbody>
+            {filteredProducts.length === 0 && <tr><td colSpan="11">No hay productos todavía. Usa el botón Nuevo producto para crear el primero.</td></tr>}
             {filteredProducts.map((product) => (
               <tr key={product._id} className={`row-${product.status}`}>
                 <td>{product.name}</td>

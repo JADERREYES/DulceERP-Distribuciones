@@ -10,6 +10,7 @@ export default function Sales() {
   const [customers, setCustomers] = useState([]);
   const [expiringBatches, setExpiringBatches] = useState([]);
   const [form, setForm] = useState({ customer: '', product: '', quantity: 1, paymentMethod: 'contado', routeZone: '' });
+  const [showForm, setShowForm] = useState(false);
   const [orderItems, setOrderItems] = useState([]);
   const [lastSale, setLastSale] = useState(null);
   const [error, setError] = useState('');
@@ -174,6 +175,7 @@ export default function Sales() {
       setLastSale(saleRes.data);
       setForm({ customer: '', product: '', quantity: 1, paymentMethod: 'contado', routeZone: '' });
       setOrderItems([]);
+      setShowForm(false);
       setValidationSummary(null);
       setSuccess('Venta registrada correctamente. Lotes asignados por FEFO.');
       await loadData();
@@ -216,6 +218,22 @@ export default function Sales() {
 
   const updateSaleFilter = (field, value) => setSaleFilters((current) => ({ ...current, [field]: value }));
 
+  const startNewSale = () => {
+    setForm({ customer: '', product: '', quantity: 1, paymentMethod: 'contado', routeZone: '' });
+    setOrderItems([]);
+    setValidationSummary(null);
+    setError('');
+    setSuccess('');
+    setShowForm(true);
+  };
+
+  const cancelNewSale = () => {
+    setForm({ customer: '', product: '', quantity: 1, paymentMethod: 'contado', routeZone: '' });
+    setOrderItems([]);
+    setValidationSummary(null);
+    setShowForm(false);
+  };
+
   return (
     <div className="page-stack">
       <div className="page-title">
@@ -223,7 +241,15 @@ export default function Sales() {
         <p>Pedidos multiproducto con inventario, costo de venta, utilidad y cartera.</p>
       </div>
 
-      <form className="form-grid" onSubmit={handleSubmit}>
+      <div className="module-toolbar">
+        <button className="button primary" type="button" onClick={startNewSale}>Nueva venta</button>
+        <button className="button secondary" type="button" onClick={validateSaleWithBackend} disabled={!showForm}>Validar venta</button>
+        <button className="button secondary" type="button" onClick={exportSales}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
+      </div>
+
+      {showForm && <form className="form-grid" onSubmit={handleSubmit}>
+        <div className="section-heading wide"><h3>Nueva venta</h3><span>Valide inventario antes de guardar</span></div>
         <label>Cliente<select value={form.customer} onChange={(e) => {
           const customer = customers.find((item) => item._id === e.target.value);
           setForm({ ...form, customer: e.target.value, routeZone: customer?.zone || form.routeZone });
@@ -243,7 +269,8 @@ export default function Sales() {
         <div className="inline-total">Utilidad estimada: {money.format(estimatedProfit)}</div>
         <button className="button secondary" type="button" onClick={validateSaleWithBackend}>Validar venta</button>
         <button className="button primary" type="submit">Guardar venta</button>
-      </form>
+        <button className="button ghost" type="button" onClick={cancelNewSale}>Cancelar</button>
+      </form>}
       {selectedCustomer && <div className="notice info">Zona sugerida: {selectedCustomer.zone}. Cupo disponible: {money.format(Number(selectedCustomer.creditLimit) - Number(selectedCustomer.currentDebt))}</div>}
       {selectedProduct && <div className={`notice ${selectedProduct.status === 'agotado' ? 'danger' : selectedProduct.status === 'bajo_stock' || selectedProduct.status === 'proximo_vencer' ? 'warning' : 'info'}`}>Stock disponible: {selectedProduct.stock}. Estado: {selectedProduct.status}</div>}
       {selectedProductExpiringBatches.length > 0 && <div className="notice warning">Este producto tiene {selectedProductExpiringBatches.length} lote(s) proximos a vencer. FEFO los priorizara en la venta.</div>}
@@ -256,7 +283,7 @@ export default function Sales() {
         </div>
       )}
 
-      {orderItems.length > 0 && (
+      {showForm && orderItems.length > 0 && (
         <div className="table-wrap">
           <table>
             <thead><tr><th>Producto</th><th>SKU</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th>Utilidad est.</th><th></th></tr></thead>
@@ -318,8 +345,6 @@ export default function Sales() {
         <input type="date" value={saleFilters.from} onChange={(e) => updateSaleFilter('from', e.target.value)} />
         <input type="date" value={saleFilters.to} onChange={(e) => updateSaleFilter('to', e.target.value)} />
         <button className="button primary" type="button" onClick={loadData}>Consultar</button>
-        <button className="button secondary" type="button" onClick={exportSales}>Exportar</button>
-        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
 
       {selectedSale && (
@@ -341,6 +366,7 @@ export default function Sales() {
             <tr><th>Fecha</th><th>Cliente</th><th>Total</th><th>Pagado</th><th>Saldo</th><th>Costo</th><th>Utilidad bruta</th><th>Forma pago</th><th>Estado pago</th><th>Estado venta</th><th>Accion</th></tr>
           </thead>
           <tbody>
+            {filteredSales.length === 0 && <tr><td colSpan="11">No hay ventas todavía. Usa el botón Nueva venta para crear la primera.</td></tr>}
             {filteredSales.map((sale) => (
               <tr key={sale._id}>
                 <td>{new Date(sale.createdAt).toLocaleDateString('es-CO')}</td>

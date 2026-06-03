@@ -8,6 +8,7 @@ export default function Payments() {
   const [customers, setCustomers] = useState([]);
   const [payments, setPayments] = useState([]);
   const [form, setForm] = useState({ customer: '', amount: 0, paymentMethod: 'efectivo', note: '' });
+  const [showForm, setShowForm] = useState(false);
   const [filters, setFilters] = useState({ customer: '', paymentMethod: '', from: '', to: '' });
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [error, setError] = useState('');
@@ -38,6 +39,7 @@ export default function Payments() {
     try {
       await api.post('/payments', form);
       setForm({ customer: '', amount: 0, paymentMethod: 'efectivo', note: '' });
+      setShowForm(false);
       setSuccess('Pago registrado correctamente.');
       await loadData();
     } catch (err) {
@@ -60,6 +62,13 @@ export default function Payments() {
     if (!ok) setError('No hay pagos para exportar.');
   };
 
+  const startPayment = () => {
+    setForm({ customer: '', amount: 0, paymentMethod: 'efectivo', note: '' });
+    setError('');
+    setSuccess('');
+    setShowForm(true);
+  };
+
   return (
     <div className="page-stack">
       <div className="page-title">
@@ -67,8 +76,15 @@ export default function Payments() {
         <p>Registro de abonos y seguimiento de clientes con saldo pendiente.</p>
       </div>
 
-      <section className="split-grid">
+      <div className="module-toolbar">
+        <button className="button primary" type="button" onClick={startPayment}>Registrar pago</button>
+        <button className="button secondary" type="button" onClick={exportPayments}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
+      </div>
+
+      {showForm && <section className="split-grid">
         <form className="form-grid single" onSubmit={handleSubmit}>
+          <div className="section-heading"><h3>Registrar pago</h3></div>
           <label>Cliente con deuda<select value={form.customer} onChange={(e) => setForm({ ...form, customer: e.target.value })} required>
             <option value="">Seleccionar</option>{debtCustomers.map((customer) => <option key={customer._id} value={customer._id}>{customer.name} - {money.format(customer.currentDebt)}</option>)}
           </select></label>
@@ -79,6 +95,7 @@ export default function Payments() {
           <label>Nota<input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
           {selectedCustomer && <div className="inline-total">Deuda actual: {money.format(selectedCustomer.currentDebt)}</div>}
           <button className="button primary" type="submit">Registrar pago</button>
+          <button className="button ghost" type="button" onClick={() => setShowForm(false)}>Cancelar</button>
           {debtCustomers.length === 0 && <div className="notice info">No hay clientes con deuda pendiente.</div>}
         </form>
 
@@ -97,7 +114,7 @@ export default function Payments() {
             </tbody>
           </table>
         </div>
-      </section>
+      </section>}
 
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}
@@ -117,8 +134,6 @@ export default function Payments() {
         <input type="date" value={filters.from} onChange={(e) => updateFilter('from', e.target.value)} />
         <input type="date" value={filters.to} onChange={(e) => updateFilter('to', e.target.value)} />
         <button className="button primary" type="button" onClick={loadData}>Consultar</button>
-        <button className="button secondary" type="button" onClick={exportPayments}>Exportar</button>
-        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
 
       {selectedPayment && (
@@ -134,6 +149,7 @@ export default function Payments() {
         <table>
           <thead><tr><th>Fecha</th><th>Cliente</th><th>Monto</th><th>Metodo</th><th>Aplicado a ventas</th><th>Nota</th><th>Accion</th></tr></thead>
           <tbody>
+            {payments.length === 0 && <tr><td colSpan="7">No hay pagos registrados todavía. Usa el botón Registrar pago para crear el primero.</td></tr>}
             {payments.map((payment) => (
               <tr key={payment._id}>
                 <td>{new Date(payment.createdAt).toLocaleDateString('es-CO')}</td>

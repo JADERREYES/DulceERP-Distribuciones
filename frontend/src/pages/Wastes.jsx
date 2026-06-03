@@ -10,6 +10,7 @@ export default function Wastes() {
   const [products, setProducts] = useState([]);
   const [batches, setBatches] = useState([]);
   const [form, setForm] = useState({ product: '', batch: '', quantity: 1, reason: 'vencimiento', description: '' });
+  const [showForm, setShowForm] = useState(false);
   const [filters, setFilters] = useState(initialFilters);
   const [selectedWaste, setSelectedWaste] = useState(null);
   const [error, setError] = useState('');
@@ -56,6 +57,7 @@ export default function Wastes() {
     try {
       await api.post('/wastes', { ...form, batch: form.batch || undefined, quantity: Number(form.quantity) });
       setForm({ product: '', batch: '', quantity: 1, reason: 'vencimiento', description: '' });
+      setShowForm(false);
       setSuccess('Merma registrada correctamente.');
       await load();
     } catch (err) {
@@ -86,12 +88,20 @@ export default function Wastes() {
     if (!ok) setError('No hay mermas para exportar.');
   };
 
+  const startWaste = () => {
+    setForm({ product: '', batch: '', quantity: 1, reason: 'vencimiento', description: '' });
+    setError('');
+    setSuccess('');
+    setShowForm(true);
+  };
+
   return (
     <div className="page-stack report-print-area">
       <div className="page-title"><h2>Mermas</h2><p>Registro de vencimientos, daños, perdidas y ajustes de inventario.</p></div>
       <div className="notice warning">Las mermas no se eliminan desde este modulo. Cualquier correccion debe hacerse con reverso controlado y auditoria.</div>
 
       <div className="module-toolbar no-print">
+        <button className="button primary" type="button" onClick={startWaste}>Registrar merma</button>
         <select value={filters.product} onChange={(e) => updateFilter('product', e.target.value)}>
           <option value="">Todos los productos</option>
           {products.map((product) => <option key={product._id} value={product._id}>{product.name}</option>)}
@@ -113,7 +123,8 @@ export default function Wastes() {
         <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
 
-      <form className="form-grid no-print" onSubmit={submit}>
+      {showForm && <form className="form-grid no-print" onSubmit={submit}>
+        <div className="section-heading wide"><h3>Registrar merma</h3><span>Descuenta inventario con trazabilidad</span></div>
         <label>Producto<select value={form.product} onChange={(e) => { setForm({ ...form, product: e.target.value, batch: '' }); loadBatches(e.target.value); }} required><option value="">Seleccionar</option>{products.map((product) => <option key={product._id} value={product._id}>{product.name} - Stock {product.stock}</option>)}</select></label>
         <label>Lote<select value={form.batch} onChange={(e) => setForm({ ...form, batch: e.target.value })}><option value="">Sin lote especifico</option>{batches.filter((batch) => !form.product || batch.product?._id === form.product || batch.product === form.product).map((batch) => <option key={batch._id} value={batch._id}>{batch.batchNumber} - Disp. {batch.availableQuantity}</option>)}</select></label>
         <label>Cantidad<input type="number" min="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} required /></label>
@@ -121,7 +132,8 @@ export default function Wastes() {
         <label>Descripcion<input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
         <div className="inline-total">Costo estimado: {formatCurrency(estimatedCost)}</div>
         <button className="button primary" type="submit">Registrar merma</button>
-      </form>
+        <button className="button ghost" type="button" onClick={() => setShowForm(false)}>Cancelar</button>
+      </form>}
 
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}

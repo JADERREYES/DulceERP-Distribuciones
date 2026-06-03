@@ -19,6 +19,7 @@ export default function Expenses() {
   const [form, setForm] = useState(initialForm);
   const [filters, setFilters] = useState(initialFilters);
   const [editingExpense, setEditingExpense] = useState(null);
+  const [showForm, setShowForm] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -63,6 +64,7 @@ export default function Expenses() {
   const resetForm = () => {
     setEditingExpense(null);
     setForm(initialForm);
+    setShowForm(false);
   };
 
   const handleSubmit = async (event) => {
@@ -86,6 +88,7 @@ export default function Expenses() {
 
   const editExpense = (expense) => {
     setEditingExpense(expense);
+    setShowForm(true);
     setForm({
       concept: expense.concept || '',
       category: expense.category || 'administracion',
@@ -94,6 +97,14 @@ export default function Expenses() {
       paymentMethod: expense.paymentMethod || 'efectivo',
       description: expense.description || ''
     });
+  };
+
+  const startNewExpense = () => {
+    setEditingExpense(null);
+    setForm(initialForm);
+    setError('');
+    setSuccess('');
+    setShowForm(true);
   };
 
   const deleteExpense = async (expense) => {
@@ -141,6 +152,7 @@ export default function Expenses() {
       </div>
 
       <div className="module-toolbar no-print">
+        <button className="button primary" type="button" onClick={startNewExpense}>Nuevo gasto</button>
         <input placeholder="Buscar concepto o descripcion" value={filters.search} onChange={(e) => updateFilter('search', e.target.value)} />
         <select value={filters.category} onChange={(e) => updateFilter('category', e.target.value)}>
           <option value="">Todas las categorias</option>
@@ -158,7 +170,8 @@ export default function Expenses() {
         <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
 
-      <form className="form-grid no-print" onSubmit={handleSubmit}>
+      {showForm && <form className="form-grid no-print" onSubmit={handleSubmit}>
+        <div className="section-heading wide"><h3>{editingExpense ? 'Editando gasto' : 'Nuevo gasto'}</h3><span>Egreso operacional</span></div>
         <label>Concepto<input value={form.concept} onChange={(e) => setForm({ ...form, concept: e.target.value })} required /></label>
         <label>Categoria<select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
           {categories.map((category) => <option key={category} value={category}>{category}</option>)}
@@ -170,8 +183,8 @@ export default function Expenses() {
         </select></label>
         <label className="wide">Descripcion<input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></label>
         <button className="button primary" type="submit">{editingExpense ? 'Guardar cambios' : 'Registrar gasto'}</button>
-        {editingExpense && <button className="button ghost" type="button" onClick={resetForm}>Cancelar edicion</button>}
-      </form>
+        <button className="button ghost" type="button" onClick={resetForm}>Cancelar</button>
+      </form>}
 
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}

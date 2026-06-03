@@ -8,6 +8,7 @@ export default function SupplierPayments() {
   const [suppliers, setSuppliers] = useState([]);
   const [payments, setPayments] = useState([]);
   const [form, setForm] = useState({ supplier: '', amount: 0, paymentMethod: 'transferencia', note: '' });
+  const [showForm, setShowForm] = useState(false);
   const [filters, setFilters] = useState({ supplier: '', paymentMethod: '', from: '', to: '' });
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [error, setError] = useState('');
@@ -31,6 +32,7 @@ export default function SupplierPayments() {
     try {
       await api.post('/supplier-payments', form);
       setForm({ supplier: '', amount: 0, paymentMethod: 'transferencia', note: '' });
+      setShowForm(false);
       await load();
     } catch (err) {
       setError(err.userMessage || err.response?.data?.message || 'Error registrando pago a proveedor.');
@@ -51,18 +53,31 @@ export default function SupplierPayments() {
     if (!ok) setError('No hay pagos a proveedores para exportar.');
   };
 
+  const startSupplierPayment = () => {
+    setForm({ supplier: '', amount: 0, paymentMethod: 'transferencia', note: '' });
+    setError('');
+    setShowForm(true);
+  };
+
   return (
     <div className="page-stack">
       <div className="page-title"><h2>Pagos a proveedores</h2><p>Control de obligaciones y cuentas por pagar.</p></div>
-      <form className="form-grid" onSubmit={submit}>
+      <div className="module-toolbar">
+        <button className="button primary" type="button" onClick={startSupplierPayment}>Registrar pago proveedor</button>
+        <button className="button secondary" type="button" onClick={exportPayments}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
+      </div>
+      {showForm && <form className="form-grid" onSubmit={submit}>
+        <div className="section-heading wide"><h3>Registrar pago proveedor</h3><span>Aplica a compras crédito pendientes</span></div>
         <label>Proveedor<select value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} required><option value="">Seleccionar</option>{suppliersWithDebt.map((supplier) => <option key={supplier._id} value={supplier._id}>{supplier.name} - {money.format(supplier.currentDebt)}</option>)}</select></label>
         <label>Monto<input type="number" min="1" value={form.amount} onChange={(e) => setForm({ ...form, amount: Number(e.target.value) })} required /></label>
         <label>Metodo<select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}><option value="efectivo">Efectivo</option><option value="transferencia">Transferencia</option><option value="tarjeta">Tarjeta</option><option value="otro">Otro</option></select></label>
         <label>Nota<input value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
         {selectedSupplier && <div className="inline-total">Deuda proveedor: {money.format(selectedSupplier.currentDebt)}</div>}
         <button className="button primary" type="submit">Registrar pago</button>
+        <button className="button ghost" type="button" onClick={() => setShowForm(false)}>Cancelar</button>
         {suppliersWithDebt.length === 0 && <div className="notice info">No hay proveedores con deuda pendiente para registrar pagos.</div>}
-      </form>
+      </form>}
       {error && <p className="error">{error}</p>}
       <div className="module-toolbar">
         <select value={filters.supplier} onChange={(e) => updateFilter('supplier', e.target.value)}>
@@ -79,8 +94,6 @@ export default function SupplierPayments() {
         <input type="date" value={filters.from} onChange={(e) => updateFilter('from', e.target.value)} />
         <input type="date" value={filters.to} onChange={(e) => updateFilter('to', e.target.value)} />
         <button className="button primary" type="button" onClick={load}>Consultar</button>
-        <button className="button secondary" type="button" onClick={exportPayments}>Exportar</button>
-        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
       {selectedPayment && (
         <div className="detail-panel">
@@ -90,7 +103,7 @@ export default function SupplierPayments() {
           <button className="button ghost" type="button" onClick={() => setSelectedPayment(null)}>Cerrar detalle</button>
         </div>
       )}
-      <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Monto</th><th>Metodo</th><th>Aplicado a compras</th><th>Nota</th><th>Accion</th></tr></thead><tbody>{payments.map((payment) => <tr key={payment._id}><td>{new Date(payment.createdAt).toLocaleDateString('es-CO')}</td><td>{payment.supplier?.name}</td><td>{money.format(payment.amount)}</td><td>{payment.paymentMethod}</td><td>{payment.appliedToPurchases?.length ? payment.appliedToPurchases.map((item) => money.format(item.amountApplied)).join(', ') : '-'}</td><td>{payment.note || '-'}</td><td><button className="button secondary" type="button" onClick={() => setSelectedPayment(payment)}>Ver</button></td></tr>)}</tbody></table></div>
+      <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Monto</th><th>Metodo</th><th>Aplicado a compras</th><th>Nota</th><th>Accion</th></tr></thead><tbody>{payments.length === 0 && <tr><td colSpan="7">No hay pagos a proveedores todavía. Usa el botón Registrar pago proveedor para crear el primero.</td></tr>}{payments.map((payment) => <tr key={payment._id}><td>{new Date(payment.createdAt).toLocaleDateString('es-CO')}</td><td>{payment.supplier?.name}</td><td>{money.format(payment.amount)}</td><td>{payment.paymentMethod}</td><td>{payment.appliedToPurchases?.length ? payment.appliedToPurchases.map((item) => money.format(item.amountApplied)).join(', ') : '-'}</td><td>{payment.note || '-'}</td><td><button className="button secondary" type="button" onClick={() => setSelectedPayment(payment)}>Ver</button></td></tr>)}</tbody></table></div>
     </div>
   );
 }

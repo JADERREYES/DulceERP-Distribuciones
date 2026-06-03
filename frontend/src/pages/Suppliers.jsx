@@ -9,6 +9,7 @@ export default function Suppliers() {
   const [suppliers, setSuppliers] = useState([]);
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
   const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState({ search: '', status: '', city: '', debt: '', from: '', to: '' });
@@ -42,6 +43,7 @@ export default function Suppliers() {
       }
       setForm(initialForm);
       setEditingId(null);
+      setShowForm(false);
       await load();
     } catch (err) {
       setError(err.userMessage || err.response?.data?.message || 'Error creando proveedor.');
@@ -50,6 +52,7 @@ export default function Suppliers() {
 
   const editSupplier = (supplier) => {
     setEditingId(supplier._id);
+    setShowForm(true);
     setForm({
       name: supplier.name || '',
       document: supplier.document || '',
@@ -61,6 +64,19 @@ export default function Suppliers() {
       creditLimit: Number(supplier.creditLimit || 0),
       paymentTermDays: Number(supplier.paymentTermDays || 30)
     });
+  };
+
+  const startNewSupplier = () => {
+    setEditingId(null);
+    setForm(initialForm);
+    setShowForm(true);
+    setError('');
+  };
+
+  const cancelForm = () => {
+    setEditingId(null);
+    setForm(initialForm);
+    setShowForm(false);
   };
 
   const deleteSupplier = async (supplier) => {
@@ -91,6 +107,7 @@ export default function Suppliers() {
     <div className="page-stack">
       <div className="page-title"><h2>Proveedores</h2><p>Empresas que abastecen mercancia a la distribuidora.</p></div>
       <div className="module-toolbar">
+        <button className="button primary" type="button" onClick={startNewSupplier}>Nuevo proveedor</button>
         <input placeholder="Buscar proveedor, NIT o contacto" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
         <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
           <option value="">Todos los estados</option>
@@ -109,7 +126,8 @@ export default function Suppliers() {
         <button className="button secondary" type="button" onClick={exportSuppliers}>Exportar</button>
         <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
-      <form className="form-grid" onSubmit={submit}>
+      {showForm && <form className="form-grid" onSubmit={submit}>
+        <div className="section-heading wide"><h3>{editingId ? 'Editando proveedor' : 'Nuevo proveedor'}</h3><span>Datos básicos y cupo</span></div>
         <label>Nombre<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></label>
         <label>NIT / Documento<input value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} required /></label>
         <label>Telefono<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
@@ -119,8 +137,8 @@ export default function Suppliers() {
         <label>Cupo credito<input type="number" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: Number(e.target.value) })} /></label>
         <label>Plazo dias<input type="number" value={form.paymentTermDays} onChange={(e) => setForm({ ...form, paymentTermDays: Number(e.target.value) })} /></label>
         <button className="button primary" type="submit">{editingId ? 'Guardar cambios' : 'Crear proveedor'}</button>
-        {editingId && <button className="button ghost" type="button" onClick={() => { setEditingId(null); setForm(initialForm); }}>Cancelar edicion</button>}
-      </form>
+        <button className="button ghost" type="button" onClick={cancelForm}>Cancelar</button>
+      </form>}
       {error && <p className="error">{error}</p>}
       {selectedSupplier && (
         <div className="detail-panel">
@@ -132,6 +150,7 @@ export default function Suppliers() {
         </div>
       )}
       <div className="table-wrap"><table><thead><tr><th>Proveedor</th><th>NIT</th><th>Ciudad</th><th>Cupo</th><th>Deuda</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>
+        {filteredSuppliers.length === 0 && <tr><td colSpan="7">No hay proveedores todavía. Usa el botón Nuevo proveedor para crear el primero.</td></tr>}
         {filteredSuppliers.map((supplier) => <tr key={supplier._id} className={`row-${supplier.status}`}><td>{supplier.name}</td><td>{supplier.document}</td><td>{supplier.city || '-'}</td><td>{money.format(supplier.creditLimit)}</td><td>{money.format(supplier.currentDebt)}</td><td><span className={`badge ${supplier.status}`}>{supplier.status}</span></td><td><button className="button secondary" type="button" onClick={() => setSelectedSupplier(supplier)}>Ver</button><button className="button secondary" type="button" onClick={() => editSupplier(supplier)}>Editar</button><button className="button danger" type="button" onClick={() => deleteSupplier(supplier)}>Eliminar</button></td></tr>)}
       </tbody></table></div>
     </div>

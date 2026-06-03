@@ -13,6 +13,7 @@ export default function Users() {
   const [filters, setFilters] = useState({ search: '', role: '', status: '' });
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState('');
+  const [showForm, setShowForm] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ userId: '', password: '' });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -55,6 +56,7 @@ export default function Users() {
       }
       setForm(emptyForm);
       setEditingId('');
+      setShowForm(false);
       await loadUsers();
     } catch (err) {
       setError(err.userMessage || err.response?.data?.message || err.response?.data?.error || 'Error guardando usuario.');
@@ -63,6 +65,7 @@ export default function Users() {
 
   const startEdit = (item) => {
     setEditingId(item._id);
+    setShowForm(true);
     setForm({ name: item.name, email: item.email, password: '', role: item.role, status: item.status || 'activo' });
     clearMessages();
   };
@@ -107,6 +110,19 @@ export default function Users() {
     return <div className="notice danger">No tienes permisos para administrar usuarios.</div>;
   }
 
+  const startNewUser = () => {
+    setEditingId('');
+    setForm(emptyForm);
+    setShowForm(true);
+    clearMessages();
+  };
+
+  const cancelUserForm = () => {
+    setEditingId('');
+    setForm(emptyForm);
+    setShowForm(false);
+  };
+
   return (
     <div className="page-stack">
       <div className="page-title">
@@ -114,10 +130,14 @@ export default function Users() {
         <p>Administracion segura de usuarios, roles y estados de acceso.</p>
       </div>
 
+      <div className="module-toolbar">
+        <button className="button primary" type="button" onClick={startNewUser}>Nuevo usuario</button>
+      </div>
+
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}
 
-      <section className="page-stack">
+      {showForm && <section className="page-stack">
         <h3>{editingId ? `Editar usuario ${selectedUser?.email || ''}` : 'Crear usuario'}</h3>
         <form className="form-grid" onSubmit={submitUser}>
           <label>Nombre<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></label>
@@ -126,9 +146,9 @@ export default function Users() {
           <label>Rol<select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>{roles.map((role) => <option key={role} value={role}>{role}</option>)}</select></label>
           <label>Estado<select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>{statuses.map((status) => <option key={status} value={status}>{status}</option>)}</select></label>
           <button className="button primary" type="submit">{editingId ? 'Guardar cambios' : 'Crear usuario'}</button>
-          {editingId && <button className="button secondary" type="button" onClick={() => { setEditingId(''); setForm(emptyForm); }}>Cancelar edicion</button>}
+          <button className="button secondary" type="button" onClick={cancelUserForm}>Cancelar</button>
         </form>
-      </section>
+      </section>}
 
       <section className="page-stack">
         <h3>Cambiar contrasena</h3>
@@ -150,6 +170,7 @@ export default function Users() {
         <table>
           <thead><tr><th>Nombre</th><th>Email</th><th>Rol</th><th>Estado</th><th>Ultimo login</th><th>Creado</th><th>Acciones</th></tr></thead>
           <tbody>
+            {users.length === 0 && <tr><td colSpan="7">No hay usuarios todavía. Usa el botón Nuevo usuario para crear el primero.</td></tr>}
             {users.map((item) => (
               <tr key={item._id}>
                 <td>{item.name}</td>

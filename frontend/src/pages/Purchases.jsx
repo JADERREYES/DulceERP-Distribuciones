@@ -10,6 +10,7 @@ export default function Purchases() {
   const [products, setProducts] = useState([]);
   const [items, setItems] = useState([]);
   const [form, setForm] = useState({ supplier: '', product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '', paymentMethod: 'contado', invoiceNumber: '', note: '' });
+  const [showForm, setShowForm] = useState(false);
   const [filters, setFilters] = useState({ supplier: '', status: '', paymentStatus: '', from: '', to: '' });
   const [selectedPurchase, setSelectedPurchase] = useState(null);
   const [error, setError] = useState('');
@@ -49,6 +50,7 @@ export default function Purchases() {
       await api.post('/purchases', { supplier: form.supplier, paymentMethod: form.paymentMethod, invoiceNumber: form.invoiceNumber, note: form.note, items });
       setItems([]);
       setForm({ supplier: '', product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '', paymentMethod: 'contado', invoiceNumber: '', note: '' });
+      setShowForm(false);
       await load();
     } catch (err) {
       setError(err.userMessage || err.response?.data?.message || err.response?.data?.error || 'Error registrando compra.');
@@ -83,10 +85,24 @@ export default function Purchases() {
 
   const updateFilter = (field, value) => setFilters((current) => ({ ...current, [field]: value }));
 
+  const startNewPurchase = () => {
+    setItems([]);
+    setForm({ supplier: '', product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '', paymentMethod: 'contado', invoiceNumber: '', note: '' });
+    setError('');
+    setShowForm(true);
+  };
+
+  const cancelNewPurchase = () => {
+    setItems([]);
+    setForm({ supplier: '', product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '', paymentMethod: 'contado', invoiceNumber: '', note: '' });
+    setShowForm(false);
+  };
+
   return (
     <div className="page-stack">
       <div className="page-title"><h2>Compras</h2><p>Entradas de inventario, costos y cuentas por pagar.</p></div>
       <div className="module-toolbar">
+        <button className="button primary" type="button" onClick={startNewPurchase}>Nueva compra</button>
         <select value={filters.supplier} onChange={(e) => updateFilter('supplier', e.target.value)}>
           <option value="">Todos los proveedores</option>
           {suppliers.map((supplier) => <option key={supplier._id} value={supplier._id}>{supplier.name}</option>)}
@@ -107,7 +123,8 @@ export default function Purchases() {
         <button className="button secondary" type="button" onClick={exportPurchases}>Exportar</button>
         <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
-      <form className="form-grid" onSubmit={submit}>
+      {showForm && <form className="form-grid" onSubmit={submit}>
+        <div className="section-heading wide"><h3>Nueva compra</h3><span>Entrada controlada de inventario y lotes</span></div>
         <label>Proveedor<select value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} required><option value="">Seleccionar</option>{suppliers.map((supplier) => <option key={supplier._id} value={supplier._id}>{supplier.name}</option>)}</select></label>
         <label>Forma de pago<select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}><option value="contado">Contado</option><option value="credito">Credito</option></select></label>
         <label>Factura<input value={form.invoiceNumber} onChange={(e) => setForm({ ...form, invoiceNumber: e.target.value })} /></label>
@@ -119,9 +136,10 @@ export default function Purchases() {
         <button className="button secondary" type="button" onClick={addItem}>Agregar producto</button>
         <div className="inline-total">Total compra: {money.format(total)}</div>
         <button className="button primary" type="submit" disabled={items.length === 0}>Registrar compra</button>
-      </form>
+        <button className="button ghost" type="button" onClick={cancelNewPurchase}>Cancelar</button>
+      </form>}
       {error && <p className="error">{error}</p>}
-      {items.length > 0 && <div className="table-wrap"><table><thead><tr><th>Producto</th><th>Cantidad</th><th>Costo</th><th>Lote</th><th>Vencimiento</th><th>Subtotal</th><th></th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.product}-${index}`}><td>{item.name}</td><td>{item.quantity}</td><td>{money.format(item.unitCost)}</td><td>{item.batchNumber || 'Automatico'}</td><td>{item.expirationDate}</td><td>{money.format(item.quantity * item.unitCost)}</td><td><button className="button danger" type="button" onClick={() => setItems(items.filter((_, i) => i !== index))}>Quitar</button></td></tr>)}</tbody></table></div>}
+      {showForm && items.length > 0 && <div className="table-wrap"><table><thead><tr><th>Producto</th><th>Cantidad</th><th>Costo</th><th>Lote</th><th>Vencimiento</th><th>Subtotal</th><th></th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.product}-${index}`}><td>{item.name}</td><td>{item.quantity}</td><td>{money.format(item.unitCost)}</td><td>{item.batchNumber || 'Automatico'}</td><td>{item.expirationDate}</td><td>{money.format(item.quantity * item.unitCost)}</td><td><button className="button danger" type="button" onClick={() => setItems(items.filter((_, i) => i !== index))}>Quitar</button></td></tr>)}</tbody></table></div>}
       {selectedPurchase && (
         <div className="detail-panel">
           <h3>Detalle compra</h3>
@@ -130,7 +148,7 @@ export default function Purchases() {
           <button className="button ghost" type="button" onClick={() => setSelectedPurchase(null)}>Cerrar detalle</button>
         </div>
       )}
-      <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Total</th><th>Pagado</th><th>Saldo</th><th>Pago</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{purchases.map((purchase) => <tr key={purchase._id}><td>{new Date(purchase.createdAt).toLocaleDateString('es-CO')}</td><td>{purchase.supplier?.name}</td><td>{money.format(purchase.total)}</td><td>{money.format(purchase.paidAmount || 0)}</td><td>{money.format(purchase.balance || 0)}</td><td>{purchase.paymentMethod} / {purchase.paymentStatus}</td><td><span className={`badge ${purchase.status}`}>{purchase.status}</span></td><td><button className="button secondary" type="button" onClick={() => setSelectedPurchase(purchase)}>Ver</button>{purchase.status === 'activa' && <button className="button danger" type="button" onClick={() => cancelPurchase(purchase._id)}>Anular</button>}</td></tr>)}</tbody></table></div>
+      <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Proveedor</th><th>Total</th><th>Pagado</th><th>Saldo</th><th>Pago</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{purchases.length === 0 && <tr><td colSpan="8">No hay compras todavía. Usa el botón Nueva compra para crear la primera.</td></tr>}{purchases.map((purchase) => <tr key={purchase._id}><td>{new Date(purchase.createdAt).toLocaleDateString('es-CO')}</td><td>{purchase.supplier?.name}</td><td>{money.format(purchase.total)}</td><td>{money.format(purchase.paidAmount || 0)}</td><td>{money.format(purchase.balance || 0)}</td><td>{purchase.paymentMethod} / {purchase.paymentStatus}</td><td><span className={`badge ${purchase.status}`}>{purchase.status}</span></td><td><button className="button secondary" type="button" onClick={() => setSelectedPurchase(purchase)}>Ver</button>{purchase.status === 'activa' && <button className="button danger" type="button" onClick={() => cancelPurchase(purchase._id)}>Anular</button>}</td></tr>)}</tbody></table></div>
     </div>
   );
 }

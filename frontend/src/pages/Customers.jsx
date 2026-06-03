@@ -27,6 +27,7 @@ export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [form, setForm] = useState(initialForm);
   const [editingCustomer, setEditingCustomer] = useState(null);
+  const [showForm, setShowForm] = useState(false);
   const [debtDetail, setDebtDetail] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -63,12 +64,14 @@ export default function Customers() {
   const resetForm = () => {
     setForm(initialForm);
     setEditingCustomer(null);
+    setShowForm(false);
     setError('');
     setSuccess('');
   };
 
   const editCustomer = (customer) => {
     setEditingCustomer(customer);
+    setShowForm(true);
     setForm({
       name: customer.name || '',
       document: customer.document || '',
@@ -79,6 +82,14 @@ export default function Customers() {
       creditLimit: Number(customer.creditLimit || 0),
       paymentTermDays: Number(customer.paymentTermDays || 0)
     });
+    setError('');
+    setSuccess('');
+  };
+
+  const startNewCustomer = () => {
+    setForm(initialForm);
+    setEditingCustomer(null);
+    setShowForm(true);
     setError('');
     setSuccess('');
   };
@@ -177,6 +188,7 @@ export default function Customers() {
       </div>
       <div className="notice info">Diferencia cartera $0 significa que la cartera esta conciliada, no necesariamente que no existan clientes con deuda.</div>
       <div className="module-toolbar">
+        <button className="button primary" type="button" onClick={startNewCustomer}>Nuevo cliente</button>
         <input placeholder="Buscar cliente, documento, telefono o zona" value={filters.q} onChange={(e) => setFilters({ ...filters, q: e.target.value })} />
         <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
           <option value="">Todos los estados</option>
@@ -187,7 +199,8 @@ export default function Customers() {
         <button className="button secondary" type="button" onClick={exportCustomers}>Exportar</button>
         <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
-      <form className="form-grid" onSubmit={handleSubmit}>
+      {showForm && <form className="form-grid" onSubmit={handleSubmit}>
+        <div className="section-heading wide"><h3>{editingCustomer ? 'Editando cliente' : 'Nuevo cliente'}</h3><span>Datos comerciales y cupo</span></div>
         <label>Nombre<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></label>
         <label>Documento<input value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} required /></label>
         <label>Telefono<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
@@ -204,8 +217,8 @@ export default function Customers() {
           </div>
         )}
         <button className="button primary" type="submit">{editingCustomer ? 'Actualizar cliente' : 'Crear cliente'}</button>
-        {editingCustomer && <button className="button secondary" type="button" onClick={resetForm}>Cancelar edicion</button>}
-      </form>
+        <button className="button secondary" type="button" onClick={resetForm}>Cancelar</button>
+      </form>}
       {error && <p className="error">{error}</p>}
       {success && <p className="success">{success}</p>}
 
@@ -251,6 +264,7 @@ export default function Customers() {
             <tr><th>Cliente</th><th>Documento</th><th>Telefono</th><th>Zona</th><th>Cupo</th><th>Deuda</th><th>Uso cupo</th><th>Estado</th><th>Acciones</th></tr>
           </thead>
           <tbody>
+            {filteredCustomers.length === 0 && <tr><td colSpan="9">No hay clientes todavía. Usa el botón Nuevo cliente para crear el primero.</td></tr>}
             {filteredCustomers.map((customer) => (
               <tr key={customer._id} className={`row-${customer.status}`}>
                 <td>{customer.name}</td><td>{customer.document}</td><td>{customer.phone || '-'}</td><td>{customer.zone}</td>
