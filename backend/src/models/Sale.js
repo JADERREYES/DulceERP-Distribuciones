@@ -97,6 +97,10 @@ const saleSchema = new mongoose.Schema(
       required: true,
       trim: true
     },
+    note: {
+      type: String,
+      trim: true
+    },
     seller: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'

@@ -6,6 +6,7 @@ const Sale = require('../models/Sale');
 const { paginatedResponse } = require('../utils/pagination');
 const { applyDateRange } = require('../utils/queryFilters');
 const { createAuditLog } = require('../utils/auditLogger');
+const { getProductSaleAvailability } = require('../utils/saleAvailability');
 
 const getProducts = async (req, res) => {
   try {
@@ -71,6 +72,15 @@ const getProductById = async (req, res) => {
     return res.json(product);
   } catch (error) {
     return res.status(400).json({ message: 'Error consultando producto.', error: error.message });
+  }
+};
+
+const getProductSaleAvailabilityController = async (req, res) => {
+  try {
+    const availability = await getProductSaleAvailability(req.params.id);
+    return res.json(availability);
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({ message: error.message || 'Error consultando disponibilidad FEFO del producto.' });
   }
 };
 
@@ -144,4 +154,4 @@ const deleteProduct = async (req, res) => {
   }
 };
 
-module.exports = { getProducts, createProduct, getProductById, updateProduct, deleteProduct };
+module.exports = { getProducts, createProduct, getProductById, getProductSaleAvailabilityController, updateProduct, deleteProduct };

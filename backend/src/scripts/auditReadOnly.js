@@ -18,6 +18,7 @@ const SupplierPayment = require('../models/SupplierPayment');
 const User = require('../models/User');
 const Waste = require('../models/Waste');
 const { detectPossibleDemoRecords, findProductsWithoutBatches } = require('../controllers/dataCleanup.controller');
+const { summarizeBatchAvailability } = require('../utils/saleAvailability');
 
 const models = {
   users: User,
@@ -147,6 +148,110 @@ const buildExpiredBatchDiagnostic = (row, referenceDate = new Date()) => {
   };
 };
 
+const collectSaleInventoryDiagnostics = async (referenceDate = new Date()) => {
+  const products = await Product.find().select('name sku stock').lean();
+  const productsWithStockNoAvailableBatches = [];
+  const productStockGreaterThanBatchAvailable = [];
+  const batchAvailableGreaterThanProductStock = [];
+
+  for (const product of products) {
+    const batches = await ProductBatch.find({ product: product._id }).select('availableQuantity').lean();
+    const availableBatchStock = batches.reduce((total, batch) => total + number(batch.availableQuantity), 0);
+    const productStock = number(product.stock);
+
+    if (productStock > 0 && availableBatchStock <= 0) {
+      productsWithStockNoAvailableBatches.push({
+        producto: product.name,
+        sku: product.sku,
+        stockProducto: productStock,
+        sumaLotesDisponibles: availableBatchStock,
+        recomendacion: 'Cargar lote real verificado antes de vender; no ajustar stock automaticamente.'
+      });
+    }
+
+    if (productStock > availableBatchStock) {
+      productStockGreaterThanBatchAvailable.push({
+        producto: product.name,
+        sku: product.sku,
+        stockProducto: productStock,
+        sumaLotesDisponibles: availableBatchStock,
+        diferencia: productStock - availableBatchStock
+      });
+    }
+
+    if (availableBatchStock > productStock) {
+      batchAvailableGreaterThanProductStock.push({
+        producto: product.name,
+        sku: product.sku,
+        stockProducto: productStock,
+        sumaLotesDisponibles: availableBatchStock,
+        diferencia: productStock - availableBatchStock
+      });
+    }
+  }
+
+  const [expiredBatches, blockedBatches] = await Promise.all([
+    ProductBatch.find({ expirationDate: { $lt: referenceDate }, availableQuantity: { $gt: 0 } })
+      .populate('product', 'name sku')
+      .select('product batchNumber availableQuantity expirationDate status')
+      .lean(),
+    ProductBatch.find({ status: 'bloqueado', availableQuantity: { $gt: 0 } })
+      .populate('product', 'name sku')
+      .select('product batchNumber availableQuantity expirationDate status')
+      .lean()
+  ]);
+
+  return {
+    productsWithStockNoAvailableBatches,
+    productsWithExpiredBatches: expiredBatches.map((batch) => ({
+      producto: batch.product?.name || 'Producto no encontrado',
+      sku: batch.product?.sku || 'Sin SKU',
+      lote: batch.batchNumber,
+      cantidadDisponible: number(batch.availableQuantity),
+      vencimiento: batch.expirationDate,
+      estado: batch.status
+    })),
+    productsWithBlockedBatches: blockedBatches.map((batch) => ({
+      producto: batch.product?.name || 'Producto no encontrado',
+      sku: batch.product?.sku || 'Sin SKU',
+      lote: batch.batchNumber,
+      cantidadDisponible: number(batch.availableQuantity),
+      vencimiento: batch.expirationDate,
+      estado: batch.status
+    })),
+    productStockGreaterThanBatchAvailable,
+    batchAvailableGreaterThanProductStock
+  };
+};
+
+const collectFefoProductDiagnostics = async (referenceDate = new Date()) => {
+  const products = await Product.find().select('name sku stock salePrice unitCost').lean();
+  const diagnostics = [];
+
+  for (const product of products) {
+    const batches = await ProductBatch.find({ product: product._id })
+      .select('batchNumber availableQuantity expirationDate status createdAt')
+      .lean();
+    const availability = summarizeBatchAvailability(product, batches, referenceDate);
+    const expiredQuantity = availability.availability.expiredBatchQuantity;
+    const difference = availability.availability.generalStock - availability.availability.sellableBatchQuantity;
+
+    if (availability.availability.generalStock > 0 || availability.sellableBatches.length > 0 || availability.nonSellableBatches.length > 0) {
+      diagnostics.push({
+        producto: product.name,
+        sku: product.sku,
+        stockGeneral: availability.availability.generalStock,
+        lotesVendibles: availability.availability.sellableBatchQuantity,
+        lotesVencidos: expiredQuantity,
+        diferencia: difference,
+        recomendacion: availability.recommendations.join(' ')
+      });
+    }
+  }
+
+  return diagnostics;
+};
+
 const main = async () => {
   await connectDB();
 
@@ -209,6 +314,8 @@ const main = async () => {
   };
 
   const expiredBatchDiagnostics = expiredBatchesWithStock.map((row) => buildExpiredBatchDiagnostic(row, now));
+  const saleInventoryDiagnostics = await collectSaleInventoryDiagnostics(now);
+  const fefoProductDiagnostics = await collectFefoProductDiagnostics(now);
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -228,7 +335,9 @@ const main = async () => {
     },
     inventoryDiagnostics: {
       expiredBatchesWithStock: expiredBatchDiagnostics,
-      stockVsBatches
+      stockVsBatches,
+      saleInventoryDiagnostics,
+      fefoProductDiagnostics
     },
     financial
   };
@@ -264,6 +373,13 @@ const main = async () => {
   console.log(`- Posibles registros demo por patron: ${possibleDemo.summary.totalPossibleDemoRecords}`);
   Object.entries(report.demo.markedDemo).forEach(([name, count]) => console.log(`- ${name} isDemo=true: ${count}`));
   console.log(`- Productos con stock sin lotes suficientes: ${productsWithoutBatches.length}`);
+  console.log('\nDiagnostico inventario para ventas FEFO:');
+  console.log(`- Productos con stock sin lotes disponibles: ${saleInventoryDiagnostics.productsWithStockNoAvailableBatches.length}`);
+  console.log(`- Productos/lotes vencidos con stock: ${saleInventoryDiagnostics.productsWithExpiredBatches.length}`);
+  console.log(`- Productos/lotes bloqueados con stock: ${saleInventoryDiagnostics.productsWithBlockedBatches.length}`);
+  console.log(`- Product.stock > suma lotes disponibles: ${saleInventoryDiagnostics.productStockGreaterThanBatchAvailable.length}`);
+  console.log(`- Suma lotes disponibles > Product.stock: ${saleInventoryDiagnostics.batchAvailableGreaterThanProductStock.length}`);
+  console.log(`- Diagnostico FEFO por producto: ${fefoProductDiagnostics.length}`);
 
   const relevant = Object.entries(report.inconsistencies).filter(([, rows]) => rows.length > 0);
   if (relevant.length > 0) {
@@ -276,6 +392,11 @@ const main = async () => {
         rows.forEach((row) => console.log(JSON.stringify(row)));
       }
     }
+  }
+
+  if (fefoProductDiagnostics.length > 0) {
+    console.log('\nDiagnostico FEFO por producto:');
+    fefoProductDiagnostics.forEach((row) => console.log(JSON.stringify(row)));
   }
 
   await mongoose.disconnect();

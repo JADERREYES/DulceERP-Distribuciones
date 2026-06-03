@@ -7,9 +7,13 @@ const cleanupCollections = ['products', 'customers', 'suppliers', 'sales', 'purc
 
 export default function DataCleanup() {
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState('diagnostico');
+  const [readiness, setReadiness] = useState(null);
   const [detected, setDetected] = useState(null);
   const [selected, setSelected] = useState([]);
   const [preview, setPreview] = useState(null);
+  const [resetPreview, setResetPreview] = useState(null);
+  const [resetForm, setResetForm] = useState({ confirmationText: '', reason: '', authorized: false });
   const [productsWithoutBatches, setProductsWithoutBatches] = useState([]);
   const [productsSummary, setProductsSummary] = useState({ totalProducts: 0, totalMissingQuantity: 0 });
   const [suppliers, setSuppliers] = useState([]);
@@ -27,6 +31,15 @@ export default function DataCleanup() {
 
   const requireAdmin = user?.role === 'admin';
 
+  const backendMessage = (err, fallback) => err.userMessage || err.response?.data?.message || err.response?.data?.error || fallback;
+
+  const loadReadiness = async () => {
+    setError('');
+    setMessage('');
+    const res = await api.get('/data-cleanup/real-readiness');
+    setReadiness(res.data);
+  };
+
   const loadProductsWithoutBatches = async () => {
     setError('');
     const res = await api.get('/data-cleanup/products-without-batches');
@@ -41,7 +54,7 @@ export default function DataCleanup() {
 
   useEffect(() => {
     if (requireAdmin) {
-      Promise.all([loadProductsWithoutBatches(), loadSuppliers()]).catch((err) => setError(err.userMessage || err.response?.data?.message || 'Error cargando limpieza de datos.'));
+      Promise.all([loadReadiness(), loadProductsWithoutBatches(), loadSuppliers()]).catch((err) => setError(backendMessage(err, 'Error cargando limpieza de datos.')));
     }
   }, [requireAdmin]);
 
@@ -75,15 +88,19 @@ export default function DataCleanup() {
     }
     const ok = window.confirm('Esto NO borra datos. Solo marcara los registros seleccionados como demo. Deseas continuar?');
     if (!ok) return;
-    const res = await api.post('/data-cleanup/mark-demo', { items: selected.map(({ collection, id }) => ({ collection, id })), confirm: true });
+    const res = await api.post('/data-cleanup/mark-demo', {
+      records: selected.map(({ collection, id }) => ({ collection, id })),
+      reason: 'Datos de prueba identificados antes de operacion real'
+    });
     setMessage(`Registros marcados como demo: ${res.data.markedCount}`);
     await detectDemo();
+    await loadReadiness();
   };
 
   const loadDeletePreview = async () => {
     setError('');
     setMessage('');
-    const res = await api.post('/data-cleanup/delete-demo-preview', { collections: cleanupCollections, onlyMarkedDemo: true });
+    const res = await api.post('/data-cleanup/demo-cleanup-preview', { collections: cleanupCollections, patterns: ['prueba', 'demo', 'auditoria', 'test', 'FC-AUD', 'LOTE-F5'], includeMarkedDemo: true });
     setPreview(res.data);
   };
 
@@ -92,9 +109,47 @@ export default function DataCleanup() {
     setMessage('');
     const ok = window.confirm('Esta accion eliminara SOLO registros isDemo=true clasificados como seguros y sin relaciones. No elimina ventas, compras, kardex ni pagos relacionados. Deseas continuar?');
     if (!ok) return;
-    const res = await api.post('/data-cleanup/delete-demo-apply', { confirm: true, deleteOnlySafe: true });
+    const res = await api.post('/data-cleanup/delete-demo-apply', {
+      confirm: true,
+      onlySafe: true,
+      deleteOnlySafe: true,
+      reason: 'Limpieza de datos demo antes de operacion real'
+    });
     setMessage(`Eliminados seguros: ${res.data.deletedCount}. Bloqueados: ${res.data.blocked?.length || 0}`);
     await loadDeletePreview();
+    await loadReadiness();
+  };
+
+  const loadResetPreview = async () => {
+    setError('');
+    setMessage('');
+    const res = await api.post('/data-cleanup/reset-operational-preview', {});
+    setResetPreview(res.data);
+  };
+
+  const applyReset = async () => {
+    setError('');
+    setMessage('');
+    if (!resetForm.authorized) {
+      setError('Debe confirmar que estos datos son de prueba y tiene autorizacion.');
+      return;
+    }
+    const ok = window.confirm('PELIGRO: Esta accion reinicia datos operativos. Solo continue si tiene autorizacion y respaldo.');
+    if (!ok) return;
+    try {
+      const res = await api.post('/data-cleanup/reset-operational-apply', {
+        confirm: true,
+        confirmationText: resetForm.confirmationText,
+        keepUsers: true,
+        keepAdmins: true,
+        reason: resetForm.reason
+      });
+      setMessage(res.data.message || 'Reinicio operativo aplicado.');
+      await loadReadiness();
+      await loadResetPreview();
+    } catch (err) {
+      setError(backendMessage(err, 'No se pudo aplicar el reinicio operativo.'));
+    }
   };
 
   const selectProductForInitialBatch = (product) => {
@@ -168,65 +223,51 @@ export default function DataCleanup() {
       {error && <p className="error">{error}</p>}
       {message && <p className="success">{message}</p>}
 
-      <section className="page-stack">
-        <h3>Deteccion de datos demo</h3>
-        <div className="module-toolbar">
-          <button className="button primary" type="button" onClick={detectDemo}>Detectar posibles datos demo</button>
-          <button className="button secondary" type="button" onClick={markSelected}>Marcar seleccionados como demo</button>
-        </div>
-        {detected && <p>Total posibles demo: {detected.summary?.totalPossibleDemoRecords || 0}</p>}
-        {groupedDetected.map((group) => (
-          <div className="table-wrap" key={group.collection}>
-            <table>
-              <thead><tr><th colSpan="5">{group.collection}</th></tr><tr><th></th><th>Nombre</th><th>Razon</th><th>Relaciones</th><th>Advertencia</th></tr></thead>
-              <tbody>
-                {group.items.map((item) => (
-                  <tr key={item.id}>
-                    <td><input type="checkbox" checked={selected.some((selectedItem) => selectedItem.key === `${item.collection}:${item.id}`)} onChange={() => toggleItem(item.collection, item.id)} /></td>
-                    <td>{item.name}</td>
-                    <td>{item.reason}</td>
-                    <td>{item.hasRelations ? 'Si' : 'No'}</td>
-                    <td>{item.warning}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ))}
-      </section>
+      <div className="dashboard-tabs">
+        <button className={activeTab === 'diagnostico' ? 'active' : ''} type="button" onClick={() => setActiveTab('diagnostico')}>Diagnóstico</button>
+        <button className={activeTab === 'demo' ? 'active' : ''} type="button" onClick={() => setActiveTab('demo')}>Datos demo</button>
+        <button className={activeTab === 'segura' ? 'active' : ''} type="button" onClick={() => setActiveTab('segura')}>Limpieza segura</button>
+        <button className={activeTab === 'reset' ? 'active' : ''} type="button" onClick={() => setActiveTab('reset')}>Reinicio operación real</button>
+      </div>
 
+      {activeTab === 'diagnostico' && (
       <section className="page-stack">
-        <h3>Vista previa de eliminacion demo</h3>
-        <div className="notice danger">Zona peligrosa: No elimine registros con relaciones contables o de inventario. Use esta opcion solo con respaldo y autorizacion.</div>
+        <h3>Diagnóstico para operación real</h3>
         <div className="module-toolbar">
-          <button className="button primary" type="button" onClick={loadDeletePreview}>Vista previa de eliminacion demo</button>
+          <button className="button primary" type="button" onClick={loadReadiness}>Actualizar diagnóstico</button>
         </div>
-        {preview && (
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Clasificacion</th><th>Coleccion</th><th>Nombre</th><th>Razon</th><th>Advertencia</th></tr></thead>
-              <tbody>
-                {[...preview.safeToDelete, ...preview.riskyToDelete, ...preview.blocked].map((item) => (
-                  <tr key={`${item.collection}-${item.id}`}>
-                    <td><span className={`badge ${item.classification === 'safeToDelete' ? 'disponible' : 'bloqueado'}`}>{item.classification}</span></td>
-                    <td>{item.collection}</td>
-                    <td>{item.name}</td>
-                    <td>{item.reason}</td>
-                    <td>{item.warning}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-        {preview && (
-          <div className="danger-zone">
-            <button className="button danger" type="button" onClick={deleteSafe}>Eliminar solo registros seguros</button>
-          </div>
-        )}
-      </section>
+        {readiness && (
+          <>
+            <div className="kpi-grid">
+              <div className="kpi-card"><span>Ventas</span><strong>{readiness.collectionsCount?.sales || 0}</strong></div>
+              <div className="kpi-card"><span>Compras</span><strong>{readiness.collectionsCount?.purchases || 0}</strong></div>
+              <div className="kpi-card"><span>Pagos</span><strong>{(readiness.collectionsCount?.payments || 0) + (readiness.collectionsCount?.supplierPayments || 0)}</strong></div>
+              <div className="kpi-card"><span>Lotes vencidos</span><strong>{readiness.inventory?.expiredBatchesWithStock?.length || 0}</strong></div>
+              <div className="kpi-card"><span>Diferencias stock/lotes</span><strong>{readiness.inventory?.stockVsBatches?.length || 0}</strong></div>
+              <div className="kpi-card"><span>Admin activos</span><strong>{readiness.users?.activeAdminCount || 0}</strong></div>
+            </div>
 
-      <section className="page-stack">
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Colección</th><th>Total</th><th>Marcados demo</th></tr></thead>
+                <tbody>
+                  {Object.entries(readiness.collectionsCount || {}).map(([collection, count]) => (
+                    <tr key={collection}><td>{collection}</td><td>{count}</td><td>{readiness.demoMarked?.[collection] || 0}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="notice warning">
+              Posibles demo: {readiness.possibleDemo?.summary?.totalPossibleDemoRecords || 0}. Bloqueados/riesgosos: {(readiness.blockedRecords?.length || 0) + (readiness.riskyRecords?.length || 0)}.
+            </div>
+            <div className="notice info">
+              Clientes con deuda: {readiness.financial?.customersWithDebt?.length || 0}. Proveedores con deuda: {readiness.financial?.suppliersWithDebt?.length || 0}.
+            </div>
+            {readiness.recommendations?.map((recommendation) => <div className="notice info" key={recommendation}>{recommendation}</div>)}
+          </>
+        )}
+
         <h3>Productos con stock sin lotes suficientes</h3>
         <div className="module-toolbar">
           <button className="button primary" type="button" onClick={loadProductsWithoutBatches}>Buscar productos sin lotes suficientes</button>
@@ -278,6 +319,112 @@ export default function DataCleanup() {
           <button className="button primary" type="submit">Crear lote inicial real</button>
         </form>
       </section>
+      )}
+
+      {activeTab === 'demo' && (
+      <section className="page-stack">
+        <h3>Deteccion de datos demo</h3>
+        <div className="module-toolbar">
+          <button className="button primary" type="button" onClick={detectDemo}>Detectar posibles datos demo</button>
+          <button className="button secondary" type="button" onClick={markSelected}>Marcar seleccionados como demo</button>
+        </div>
+        {detected && <p>Total posibles demo: {detected.summary?.totalPossibleDemoRecords || 0}</p>}
+        {groupedDetected.map((group) => (
+          <div className="table-wrap" key={group.collection}>
+            <table>
+              <thead><tr><th colSpan="5">{group.collection}</th></tr><tr><th></th><th>Nombre</th><th>Razon</th><th>Relaciones</th><th>Advertencia</th></tr></thead>
+              <tbody>
+                {group.items.map((item) => (
+                  <tr key={item.id}>
+                    <td><input type="checkbox" checked={selected.some((selectedItem) => selectedItem.key === `${item.collection}:${item.id}`)} onChange={() => toggleItem(item.collection, item.id)} /></td>
+                    <td>{item.name}</td>
+                    <td>{item.reason}</td>
+                    <td>{item.hasRelations ? 'Si' : 'No'}</td>
+                    <td>{item.warning}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </section>
+      )}
+
+      {activeTab === 'segura' && (
+      <section className="page-stack">
+        <h3>Vista previa de eliminacion demo</h3>
+        <div className="notice danger">Zona peligrosa: No elimine registros con relaciones contables o de inventario. Use esta opcion solo con respaldo y autorizacion.</div>
+        <div className="module-toolbar">
+          <button className="button primary" type="button" onClick={loadDeletePreview}>Vista previa de eliminacion demo</button>
+        </div>
+        {preview && (
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Clasificacion</th><th>Coleccion</th><th>Nombre</th><th>Razon</th><th>Advertencia</th></tr></thead>
+              <tbody>
+                {[...preview.safeToDelete, ...preview.riskyToDelete, ...preview.blocked].map((item) => (
+                  <tr key={`${item.collection}-${item.id}`}>
+                    <td><span className={`badge ${item.classification === 'safeToDelete' ? 'disponible' : 'bloqueado'}`}>{item.classification}</span></td>
+                    <td>{item.collection}</td>
+                    <td>{item.name}</td>
+                    <td>{item.reason}</td>
+                    <td>{item.warning}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {preview && (
+          <div className="danger-zone">
+            <button className="button danger" type="button" onClick={deleteSafe}>Eliminar solo registros seguros</button>
+          </div>
+        )}
+      </section>
+      )}
+
+      {activeTab === 'reset' && (
+      <section className="page-stack danger-zone">
+        <h3>Reinicio controlado de operación real</h3>
+        <div className="notice danger">Esta acción elimina datos operativos para iniciar con datos reales. No elimina usuarios admin. Debe hacerse solo si todos los datos actuales son de prueba y existe respaldo.</div>
+        <div className="module-toolbar">
+          <button className="button secondary" type="button" onClick={loadResetPreview}>Vista previa de reinicio</button>
+        </div>
+        {resetPreview && (
+          <>
+            {!resetPreview.enabled && <div className="notice danger">El reinicio operativo está deshabilitado por seguridad.</div>}
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Colección</th><th>Registros que se borrarían</th></tr></thead>
+                <tbody>
+                  {Object.entries(resetPreview.counts || {}).map(([collection, count]) => <tr key={collection}><td>{collection}</td><td>{count}</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+            <div className="notice info">Se conservan usuarios: {resetPreview.preserved?.users}. Admin activos: {resetPreview.preserved?.activeAdmins}. Auditoría: {resetPreview.preserved?.auditLogs}</div>
+          </>
+        )}
+        <div className="form-grid">
+          <label className="wide">Texto obligatorio<input value={resetForm.confirmationText} onChange={(e) => setResetForm({ ...resetForm, confirmationText: e.target.value })} placeholder="REINICIAR DATOS OPERATIVOS" /></label>
+          <label className="wide">Razón<textarea value={resetForm.reason} onChange={(e) => setResetForm({ ...resetForm, reason: e.target.value })} placeholder="Inicio de operación con datos reales" /></label>
+          <label className="notice danger wide">
+            <input type="checkbox" checked={resetForm.authorized} onChange={(e) => setResetForm({ ...resetForm, authorized: e.target.checked })} />
+            Confirmo que estos datos son de prueba y tengo autorización.
+          </label>
+          <button
+            className="button danger"
+            type="button"
+            onClick={applyReset}
+            disabled={!resetPreview?.enabled || !resetForm.authorized || resetForm.confirmationText !== 'REINICIAR DATOS OPERATIVOS' || !resetForm.reason.trim()}
+          >
+            Reiniciar datos operativos
+          </button>
+        </div>
+        <div className="notice info">
+          Flujo recomendado después de limpiar: crear proveedores reales, productos reales, registrar compras reales con lote y vencimiento, validar FEFO, registrar ventas, pagos, revisar Kardex y conciliación.
+        </div>
+      </section>
+      )}
     </div>
   );
 }

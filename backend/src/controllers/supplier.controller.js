@@ -24,11 +24,29 @@ const getSuppliers = async (req, res) => {
   }
 };
 
+const sanitizeSupplierPayload = (body = {}) => {
+  const payload = { ...body };
+  delete payload.currentDebt;
+  delete payload.status;
+  if (payload.creditLimit !== undefined) payload.creditLimit = Number(payload.creditLimit || 0);
+  if (payload.paymentTermDays !== undefined) payload.paymentTermDays = Number(payload.paymentTermDays || 0);
+  return payload;
+};
+
+const validateSupplierPayload = (payload) => {
+  if (!payload.name || !String(payload.name).trim()) return 'El nombre o razon social del proveedor es obligatorio.';
+  if (!payload.document || !String(payload.document).trim()) return 'El NIT o documento del proveedor es obligatorio.';
+  if (payload.creditLimit !== undefined && (!Number.isFinite(Number(payload.creditLimit)) || Number(payload.creditLimit) < 0)) return 'El cupo de credito no puede ser negativo.';
+  if (payload.paymentTermDays !== undefined && (!Number.isFinite(Number(payload.paymentTermDays)) || Number(payload.paymentTermDays) < 0)) return 'El plazo de pago no puede ser negativo.';
+  return '';
+};
+
 const createSupplier = async (req, res) => {
   try {
-    const { name, document } = req.body;
-    if (!name || !document) return res.status(400).json({ message: 'Nombre y documento son obligatorios.' });
-    const supplier = await Supplier.create(req.body);
+    const payload = sanitizeSupplierPayload(req.body);
+    const validationMessage = validateSupplierPayload(payload);
+    if (validationMessage) return res.status(400).json({ message: validationMessage });
+    const supplier = await Supplier.create(payload);
     await createAuditLog({ req, action: 'CREATE', module: 'suppliers', entityId: supplier._id, entityType: 'Supplier', description: 'Proveedor creado', after: supplier.toObject() });
     return res.status(201).json(supplier);
   } catch (error) {
@@ -40,8 +58,11 @@ const updateSupplier = async (req, res) => {
   try {
     const supplier = await Supplier.findById(req.params.id);
     if (!supplier) return res.status(404).json({ message: 'Proveedor no encontrado.' });
+    const payload = sanitizeSupplierPayload(req.body);
+    const validationMessage = validateSupplierPayload({ ...supplier.toObject(), ...payload });
+    if (validationMessage) return res.status(400).json({ message: validationMessage });
     const before = supplier.toObject();
-    Object.assign(supplier, req.body);
+    Object.assign(supplier, payload);
     await supplier.save();
     await createAuditLog({ req, action: 'UPDATE', module: 'suppliers', entityId: supplier._id, entityType: 'Supplier', description: 'Proveedor actualizado', before, after: supplier.toObject() });
     return res.json(supplier);

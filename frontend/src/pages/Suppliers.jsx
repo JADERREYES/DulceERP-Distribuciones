@@ -108,34 +108,36 @@ export default function Suppliers() {
       <div className="page-title"><h2>Proveedores</h2><p>Empresas que abastecen mercancia a la distribuidora.</p></div>
       <div className="module-toolbar">
         <button className="button primary" type="button" onClick={startNewSupplier}>Nuevo proveedor</button>
-        <input placeholder="Buscar proveedor, NIT o contacto" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
-        <select value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
+        <input id="supplier-filter-search" name="filterSearch" placeholder="Buscar proveedor, NIT o contacto" value={filters.search} onChange={(e) => setFilters({ ...filters, search: e.target.value })} />
+        <select id="supplier-filter-status" name="filterStatus" value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })}>
           <option value="">Todos los estados</option>
           <option value="activo">Activo</option>
           <option value="riesgo">Riesgo</option>
           <option value="bloqueado">Bloqueado</option>
         </select>
-        <input placeholder="Ciudad" value={filters.city} onChange={(e) => setFilters({ ...filters, city: e.target.value })} />
-        <select value={filters.debt} onChange={(e) => setFilters({ ...filters, debt: e.target.value })}>
+        <input id="supplier-filter-city" name="filterCity" placeholder="Ciudad" value={filters.city} onChange={(e) => setFilters({ ...filters, city: e.target.value })} />
+        <select id="supplier-filter-debt" name="filterDebt" value={filters.debt} onChange={(e) => setFilters({ ...filters, debt: e.target.value })}>
           <option value="">Todas las deudas</option>
           <option value="withDebt">Con deuda</option>
           <option value="withoutDebt">Sin deuda</option>
         </select>
-        <input type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />
-        <input type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
+        <input id="supplier-filter-from" name="filterFrom" type="date" value={filters.from} onChange={(e) => setFilters({ ...filters, from: e.target.value })} />
+        <input id="supplier-filter-to" name="filterTo" type="date" value={filters.to} onChange={(e) => setFilters({ ...filters, to: e.target.value })} />
         <button className="button secondary" type="button" onClick={exportSuppliers}>Exportar</button>
         <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
       {showForm && <form className="form-grid" onSubmit={submit}>
         <div className="section-heading wide"><h3>{editingId ? 'Editando proveedor' : 'Nuevo proveedor'}</h3><span>Datos básicos y cupo</span></div>
-        <label>Nombre<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></label>
-        <label>NIT / Documento<input value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} required /></label>
-        <label>Telefono<input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
-        <label>Email<input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
-        <label>Contacto<input value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} /></label>
-        <label>Ciudad<input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label>
-        <label>Cupo credito<input type="number" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: Number(e.target.value) })} /></label>
-        <label>Plazo dias<input type="number" value={form.paymentTermDays} onChange={(e) => setForm({ ...form, paymentTermDays: Number(e.target.value) })} /></label>
+        <label htmlFor="supplier-name">Nombre / razon social<input id="supplier-name" name="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required /></label>
+        <label htmlFor="supplier-document">NIT / Documento<input id="supplier-document" name="document" value={form.document} onChange={(e) => setForm({ ...form, document: e.target.value })} required /></label>
+        <label htmlFor="supplier-phone">Telefono<input id="supplier-phone" name="phone" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></label>
+        <label htmlFor="supplier-email">Email<input id="supplier-email" name="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>
+        <label htmlFor="supplier-contact-name">Contacto<input id="supplier-contact-name" name="contactName" value={form.contactName} onChange={(e) => setForm({ ...form, contactName: e.target.value })} /></label>
+        <label htmlFor="supplier-city">Ciudad<input id="supplier-city" name="city" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} /></label>
+        <label className="wide" htmlFor="supplier-address">Direccion<input id="supplier-address" name="address" value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} /></label>
+        <label htmlFor="supplier-credit-limit">Cupo credito<input id="supplier-credit-limit" name="creditLimit" type="number" min="0" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: Number(e.target.value) })} /></label>
+        <label htmlFor="supplier-payment-term-days">Plazo dias<input id="supplier-payment-term-days" name="paymentTermDays" type="number" min="0" value={form.paymentTermDays} onChange={(e) => setForm({ ...form, paymentTermDays: Number(e.target.value) })} /></label>
+        <div className="notice info wide">La deuda actual del proveedor es de solo lectura y cambia por compras credito, pagos o anulaciones.</div>
         <button className="button primary" type="submit">{editingId ? 'Guardar cambios' : 'Crear proveedor'}</button>
         <button className="button ghost" type="button" onClick={cancelForm}>Cancelar</button>
       </form>}

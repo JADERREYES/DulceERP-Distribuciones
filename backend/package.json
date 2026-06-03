@@ -9,6 +9,7 @@
     "seed": "node src/seed/seedAdmin.js",
     "test:mongo": "node src/scripts/testMongoConnection.js",
     "audit:readonly": "node src/scripts/auditReadOnly.js",
+    "audit:real-readiness": "node src/scripts/auditRealDataReadiness.js",
     "final:audit": "node src/scripts/finalAudit.js",
     "check:api": "node src/scripts/checkApi.js",
     "kill:5000": "powershell -ExecutionPolicy Bypass -File src/scripts/killPort5000.ps1",

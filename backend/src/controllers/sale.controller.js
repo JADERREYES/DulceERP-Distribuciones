@@ -38,9 +38,10 @@ const validateSalePayload = async ({ body, user, session, mutate = false }) => {
   const { customer: customerId, items, paymentMethod, routeZone } = body || {};
 
   if (!customerId) throw saleValidationError('Debe seleccionar un cliente.', 'customer');
+  if (!mongoose.Types.ObjectId.isValid(customerId)) throw saleValidationError('El cliente seleccionado no existe.', 'customer', { customer: customerId });
   if (!Array.isArray(items) || items.length === 0) throw saleValidationError('Debe agregar al menos un producto a la venta.', 'items');
   if (!paymentMethod) throw saleValidationError('Debe seleccionar una forma de pago.', 'paymentMethod');
-  if (!['contado', 'credito'].includes(paymentMethod)) throw saleValidationError('Metodo de pago invalido. Use contado o credito.', 'paymentMethod', { received: paymentMethod });
+  if (!['contado', 'credito'].includes(paymentMethod)) throw saleValidationError('El metodo de pago no es valido.', 'paymentMethod', { received: paymentMethod });
   if (!routeZone || !String(routeZone).trim()) throw saleValidationError('Debe seleccionar zona o ruta.', 'routeZone');
 
   const customerQuery = Customer.findById(customerId);
@@ -61,6 +62,7 @@ const validateSalePayload = async ({ body, user, session, mutate = false }) => {
 
   for (const item of items) {
     if (!item?.product) throw saleValidationError('Debe seleccionar un producto.', 'items.product');
+    if (!mongoose.Types.ObjectId.isValid(item.product)) throw saleValidationError('Producto no encontrado.', 'items.product', { product: item.product });
 
     const quantity = Number(item.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -92,7 +94,7 @@ const validateSalePayload = async ({ body, user, session, mutate = false }) => {
     let remainingQuantity = quantity;
     const assignedBatches = [];
 
-    const allBatchesQuery = ProductBatch.find({ product: product._id, availableQuantity: { $gt: 0 } }).select('_id');
+    const allBatchesQuery = ProductBatch.find({ product: product._id, availableQuantity: { $gt: 0 } }).select('_id status expirationDate availableQuantity batchNumber');
     if (session) allBatchesQuery.session(session);
     const allBatches = await allBatchesQuery.lean();
 
@@ -114,10 +116,20 @@ const validateSalePayload = async ({ body, user, session, mutate = false }) => {
     const batches = await batchesQuery;
 
     if (batches.length === 0 && allBatches.length > 0) {
-      throw saleValidationError(`El producto ${product.name} tiene lotes vencidos o no vigentes. Cargue o habilite un lote vigente para vender.`, 'items.product', {
+      const now = new Date();
+      const expiredCount = allBatches.filter((batch) => batch.expirationDate && new Date(batch.expirationDate) < now).length;
+      const blockedCount = allBatches.filter((batch) => batch.status === 'bloqueado').length;
+      const exhaustedCount = allBatches.filter((batch) => batch.status === 'agotado').length;
+      const message = expiredCount === allBatches.length
+        ? `El producto ${product.name} tiene stock, pero sus lotes disponibles estan vencidos. Registre merma, corrija vencimiento o cargue un lote real.`
+        : `El producto ${product.name} tiene lotes vencidos o bloqueados.`;
+      throw saleValidationError(message, 'items.product', {
         product: product._id,
         productName: product.name,
-        availableBatchesWithStock: allBatches.length
+        availableBatchesWithStock: allBatches.length,
+        expiredBatchesWithStock: expiredCount,
+        blockedBatchesWithStock: blockedCount,
+        exhaustedBatchesWithStock: exhaustedCount
       });
     }
 
@@ -264,7 +276,7 @@ const createSale = async (req, res) => {
 
   try {
     logSalePayload(req);
-    const { paymentMethod, routeZone } = req.body;
+    const { paymentMethod, routeZone, note } = req.body;
 
     let createdSale;
     let saleData;
@@ -285,6 +297,7 @@ const createSale = async (req, res) => {
             paidAmount: paymentMethod === 'credito' ? 0 : saleData.total,
             balance: paymentMethod === 'credito' ? saleData.total : 0,
             routeZone,
+            note,
             seller: req.user?._id,
             status: 'activa'
           }

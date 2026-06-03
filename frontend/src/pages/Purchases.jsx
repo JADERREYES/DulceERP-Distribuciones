@@ -3,19 +3,21 @@ import api from '../api/axios';
 import { exportToCsv, formatDate } from '../utils/exportUtils';
 
 const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+const emptyPurchaseForm = { supplier: '', product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '', paymentMethod: 'contado', invoiceNumber: '', note: '' };
 
 export default function Purchases() {
   const [purchases, setPurchases] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
   const [items, setItems] = useState([]);
-  const [form, setForm] = useState({ supplier: '', product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '', paymentMethod: 'contado', invoiceNumber: '', note: '' });
+  const [form, setForm] = useState(emptyPurchaseForm);
   const [showForm, setShowForm] = useState(false);
   const [filters, setFilters] = useState({ supplier: '', status: '', paymentStatus: '', from: '', to: '' });
   const [selectedPurchase, setSelectedPurchase] = useState(null);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const selectedProduct = useMemo(() => products.find((product) => product._id === form.product), [products, form.product]);
+  const selectedSupplier = useMemo(() => suppliers.find((supplier) => supplier._id === form.supplier), [suppliers, form.supplier]);
   const total = items.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
   const activeSuppliers = useMemo(() => suppliers.filter((supplier) => supplier.status !== 'bloqueado'), [suppliers]);
   const activeProducts = useMemo(() => products.filter((product) => product.status !== 'inactivo'), [products]);
@@ -53,6 +55,10 @@ export default function Purchases() {
     }))
   });
 
+  const logPurchasePayload = (payload) => {
+    if (import.meta.env.DEV) console.log('Payload compra:', payload);
+  };
+
   const validatePurchaseForm = () => {
     if (!form.supplier) return 'Seleccione un proveedor.';
     if (!form.invoiceNumber?.trim()) return 'Ingrese numero de factura.';
@@ -78,7 +84,9 @@ export default function Purchases() {
       return false;
     }
     try {
-      const { data } = await api.post('/purchases/validate', buildPurchasePayload());
+      const payload = buildPurchasePayload();
+      logPurchasePayload(payload);
+      const { data } = await api.post('/purchases/validate', payload);
       setMessage(data.message || 'La compra es valida y puede registrarse.');
       return true;
     } catch (err) {
@@ -88,18 +96,39 @@ export default function Purchases() {
   };
 
   const addItem = () => {
-    if (!selectedProduct || Number(form.quantity) < 1 || Number(form.unitCost) <= 0) {
+    if (!selectedProduct) {
       setError('Seleccione un producto valido.');
+      return;
+    }
+    const quantity = Number(form.quantity);
+    const unitCost = Number(form.unitCost);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      setError('La cantidad debe ser mayor que cero.');
+      return;
+    }
+    if (!Number.isFinite(unitCost) || unitCost <= 0) {
+      setError('El costo unitario debe ser mayor que cero.');
       return;
     }
     if (!form.expirationDate) {
       setError('La fecha de vencimiento del lote es obligatoria.');
       return;
     }
+    const normalizedBatch = String(form.batchNumber || '').trim().toLowerCase();
+    const duplicate = items.find((item) => item.product === selectedProduct._id && String(item.batchNumber || '').trim().toLowerCase() === normalizedBatch);
+    if (duplicate && !window.confirm('Este producto y lote ya fueron agregados a la compra. Deseas agregar otra linea de todas formas?')) return;
     setError('');
     setMessage('');
-    setItems((current) => [...current, { product: selectedProduct._id, name: selectedProduct.name, quantity: Number(form.quantity), unitCost: Number(form.unitCost), batchNumber: form.batchNumber, expirationDate: form.expirationDate }]);
+    setItems((current) => [...current, { product: selectedProduct._id, name: selectedProduct.name, sku: selectedProduct.sku, quantity, unitCost, batchNumber: form.batchNumber, expirationDate: form.expirationDate }]);
     setForm({ ...form, product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '' });
+  };
+
+  const updateItem = (index, field, value) => {
+    setItems((current) => current.map((item, itemIndex) => {
+      if (itemIndex !== index) return item;
+      const numericFields = ['quantity', 'unitCost'];
+      return { ...item, [field]: numericFields.includes(field) ? Number(value) : value };
+    }));
   };
 
   const submit = async (event) => {
@@ -109,9 +138,11 @@ export default function Purchases() {
     try {
       const isValid = await validatePurchase();
       if (!isValid) return;
-      await api.post('/purchases', buildPurchasePayload());
+      const payload = buildPurchasePayload();
+      logPurchasePayload(payload);
+      await api.post('/purchases', payload);
       setItems([]);
-      setForm({ supplier: '', product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '', paymentMethod: 'contado', invoiceNumber: '', note: '' });
+      setForm(emptyPurchaseForm);
       setShowForm(false);
       setMessage('Compra registrada correctamente.');
       await load();
@@ -150,7 +181,7 @@ export default function Purchases() {
 
   const startNewPurchase = () => {
     setItems([]);
-    setForm({ supplier: '', product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '', paymentMethod: 'contado', invoiceNumber: '', note: '' });
+    setForm(emptyPurchaseForm);
     setError('');
     setMessage('');
     setShowForm(true);
@@ -158,7 +189,7 @@ export default function Purchases() {
 
   const cancelNewPurchase = () => {
     setItems([]);
-    setForm({ supplier: '', product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '', paymentMethod: 'contado', invoiceNumber: '', note: '' });
+    setForm(emptyPurchaseForm);
     setError('');
     setMessage('');
     setShowForm(false);
@@ -197,11 +228,13 @@ export default function Purchases() {
         <label htmlFor="purchase-payment-method">Forma de pago<select id="purchase-payment-method" name="paymentMethod" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}><option value="">Seleccionar</option><option value="contado">Contado</option><option value="credito">Credito</option></select></label>
         <label htmlFor="purchase-invoice-number">Factura<input id="purchase-invoice-number" name="invoiceNumber" value={form.invoiceNumber} onChange={(e) => setForm({ ...form, invoiceNumber: e.target.value })} /></label>
         <label htmlFor="purchase-product">Producto<select id="purchase-product" name="product" value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })}><option value="">Seleccionar</option>{activeProducts.map((product) => <option key={product._id} value={product._id}>{product.name} - costo actual {money.format(product.unitCost)}</option>)}</select></label>
-        <label htmlFor="purchase-quantity">Cantidad<input id="purchase-quantity" name="quantity" type="number" min="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></label>
-        <label htmlFor="purchase-unit-cost">Costo compra<input id="purchase-unit-cost" name="unitCost" type="number" min="1" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: e.target.value })} /></label>
+        <label htmlFor="purchase-quantity">Cantidad<input id="purchase-quantity" name="quantity" type="number" min="1" step="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })} /></label>
+        <label htmlFor="purchase-unit-cost">Costo compra<input id="purchase-unit-cost" name="unitCost" type="number" min="1" step="1" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: Number(e.target.value) })} /></label>
         <label htmlFor="purchase-batch-number">Lote opcional<input id="purchase-batch-number" name="batchNumber" value={form.batchNumber} onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} placeholder="Se genera automatico si queda vacio" /></label>
         <label htmlFor="purchase-expiration-date">Vencimiento lote<input id="purchase-expiration-date" name="expirationDate" type="date" value={form.expirationDate} onChange={(e) => setForm({ ...form, expirationDate: e.target.value })} required /></label>
         <label className="wide" htmlFor="purchase-note">Nota<textarea id="purchase-note" name="note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
+        {selectedSupplier && <div className="notice info wide">Proveedor seleccionado: {selectedSupplier.name}. Deuda actual: {money.format(selectedSupplier.currentDebt || 0)}.</div>}
+        {selectedProduct && <div className="notice info wide">Producto seleccionado: {selectedProduct.name} ({selectedProduct.sku}). Stock actual: {selectedProduct.stock}. Costo actual: {money.format(selectedProduct.unitCost)}.</div>}
         <button className="button secondary" type="button" onClick={addItem}>Agregar producto</button>
         <div className="inline-total">Total compra: {money.format(total)}</div>
         <button className="button secondary" type="button" onClick={validatePurchase} disabled={items.length === 0}>Validar compra</button>
@@ -210,7 +243,7 @@ export default function Purchases() {
       </form>}
       {error && <p className="error">{error}</p>}
       {message && <p className="success">{message}</p>}
-      {showForm && items.length > 0 && <div className="table-wrap"><table><thead><tr><th>Producto</th><th>Cantidad</th><th>Costo</th><th>Lote</th><th>Vencimiento</th><th>Subtotal</th><th></th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.product}-${index}`}><td>{item.name}</td><td>{item.quantity}</td><td>{money.format(item.unitCost)}</td><td>{item.batchNumber || 'Automatico'}</td><td>{item.expirationDate}</td><td>{money.format(item.quantity * item.unitCost)}</td><td><button className="button danger" type="button" onClick={() => setItems(items.filter((_, i) => i !== index))}>Quitar</button></td></tr>)}</tbody></table></div>}
+      {showForm && items.length > 0 && <div className="table-wrap"><table><thead><tr><th>Producto</th><th>SKU</th><th>Cantidad</th><th>Costo unitario</th><th>Subtotal</th><th>Lote</th><th>Vencimiento</th><th></th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.product}-${index}`}><td>{item.name}</td><td>{item.sku || '-'}</td><td><input id={`purchase-item-${index}-quantity`} name={`items[${index}].quantity`} type="number" min="1" step="1" value={item.quantity} onChange={(e) => updateItem(index, 'quantity', e.target.value)} /></td><td><input id={`purchase-item-${index}-unit-cost`} name={`items[${index}].unitCost`} type="number" min="1" step="1" value={item.unitCost} onChange={(e) => updateItem(index, 'unitCost', e.target.value)} /></td><td>{money.format(Number(item.quantity || 0) * Number(item.unitCost || 0))}</td><td><input id={`purchase-item-${index}-batch-number`} name={`items[${index}].batchNumber`} value={item.batchNumber || ''} onChange={(e) => updateItem(index, 'batchNumber', e.target.value)} placeholder="Automatico" /></td><td><input id={`purchase-item-${index}-expiration-date`} name={`items[${index}].expirationDate`} type="date" value={item.expirationDate || ''} onChange={(e) => updateItem(index, 'expirationDate', e.target.value)} /></td><td><button className="button danger" type="button" onClick={() => setItems(items.filter((_, i) => i !== index))}>Quitar</button></td></tr>)}</tbody></table></div>}
       {selectedPurchase && (
         <div className="detail-panel">
           <h3>Detalle compra</h3>

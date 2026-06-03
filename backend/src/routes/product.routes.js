@@ -3,6 +3,7 @@ const {
   createProduct,
   deleteProduct,
   getProductById,
+  getProductSaleAvailabilityController,
   getProducts,
   updateProduct
 } = require('../controllers/product.controller');
@@ -13,6 +14,7 @@ const router = express.Router();
 
 router.use(protect);
 router.route('/').get(authorizeRoles('admin', 'contador', 'vendedor', 'bodega'), getProducts).post(authorizeRoles('admin', 'bodega'), createProduct);
+router.get('/:id/sale-availability', authorizeRoles('admin', 'contador', 'vendedor', 'bodega'), getProductSaleAvailabilityController);
 router
   .route('/:id')
   .get(authorizeRoles('admin', 'contador', 'vendedor', 'bodega'), getProductById)

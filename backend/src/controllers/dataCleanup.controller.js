@@ -1,4 +1,8 @@
 const mongoose = require('mongoose');
+const fs = require('fs/promises');
+const path = require('path');
+const AuditLog = require('../models/AuditLog');
+const CostHistory = require('../models/CostHistory');
 const Customer = require('../models/Customer');
 const Expense = require('../models/Expense');
 const InventoryMovement = require('../models/InventoryMovement');
@@ -9,8 +13,19 @@ const Purchase = require('../models/Purchase');
 const Sale = require('../models/Sale');
 const Supplier = require('../models/Supplier');
 const SupplierPayment = require('../models/SupplierPayment');
+const User = require('../models/User');
 const Waste = require('../models/Waste');
 const { createAuditLog } = require('../utils/auditLogger');
+const {
+  buildRealReadinessReport,
+  collections: readinessCollections,
+  demoPatterns,
+  findPossibleDemoRecords: findPossibleDemoRecordsV2,
+  itemName: readinessItemName,
+  operationalCollections,
+  relationSummary: readinessRelationSummary,
+  supportsIsDemo
+} = require('../utils/realDataReadiness');
 
 const demoRegex = /(auditoria|auditor[ií]a|prueba|test|demo|ejemplo|ficticio|audit|fc-aud)/i;
 
@@ -113,12 +128,14 @@ const detectDemo = async (req, res) => {
 
 const markDemo = async (req, res) => {
   try {
-    const { items = [], confirm } = req.body;
-    if (confirm !== true) return res.status(400).json({ message: 'Debe confirmar con confirm: true.' });
-    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ message: 'Debe enviar items para marcar.' });
+    const { items, records, confirm, reason } = req.body;
+    const rows = records || items || [];
+    if (records === undefined && confirm !== true) return res.status(400).json({ message: 'Debe confirmar con confirm: true.' });
+    if (!reason && records !== undefined) return res.status(400).json({ message: 'Debe indicar una razon para marcar demo.' });
+    if (!Array.isArray(rows) || rows.length === 0) return res.status(400).json({ message: 'Debe enviar registros para marcar.' });
 
     const marked = [];
-    for (const item of items) {
+    for (const item of rows) {
       const config = collections[item.collection];
       if (!config || !mongoose.Types.ObjectId.isValid(item.id)) continue;
       const doc = await config.Model.findById(item.id);
@@ -127,7 +144,7 @@ const markDemo = async (req, res) => {
       doc.isDemo = true;
       await doc.save();
       marked.push({ collection: item.collection, id: doc._id, name: itemName(item.collection, doc) });
-      await createAuditLog({ req, action: 'UPDATE', module: 'dataCleanup', entityId: doc._id, entityType: config.label, description: `Registro marcado como demo: ${item.collection}`, before, after: doc.toObject() });
+      await createAuditLog({ req, action: 'UPDATE', module: 'dataCleanup', entityId: doc._id, entityType: config.label, description: `Registro marcado como demo: ${item.collection}`, before, after: doc.toObject(), metadata: { reason: reason || 'Marcado demo confirmado por administrador.' } });
     }
     return res.json({ markedCount: marked.length, marked });
   } catch (error) {
@@ -178,11 +195,71 @@ const deleteDemoPreview = async (req, res) => {
   }
 };
 
+const realReadiness = async (req, res) => {
+  try {
+    return res.json(await buildRealReadinessReport());
+  } catch (error) {
+    return res.status(500).json({ message: 'Error generando diagnostico para datos reales.', error: error.message });
+  }
+};
+
+const demoCleanupPreview = async (req, res) => {
+  try {
+    const {
+      collections: requestedCollections = Object.keys(collections),
+      patterns = demoPatterns,
+      includeMarkedDemo = true
+    } = req.body || {};
+    const possibleDemo = await findPossibleDemoRecordsV2(requestedCollections, patterns, includeMarkedDemo);
+    const safeToDelete = [];
+    const riskyToDelete = [];
+    const blocked = [];
+
+    for (const [collection, rows] of Object.entries(possibleDemo)) {
+      if (collection === 'summary') continue;
+      for (const row of rows) {
+        const config = readinessCollections[collection];
+        const item = {
+          collection,
+          id: row.id,
+          name: row.name,
+          relations: row.relations,
+          reasons: [row.reason],
+          warning: row.warning
+        };
+
+        if (config?.transactional || ['sales', 'purchases', 'payments', 'supplierPayments', 'productBatches', 'batches', 'inventoryMovements', 'costHistories', 'auditLogs'].includes(collection)) {
+          blocked.push({ ...item, classification: 'blocked', reason: 'Dato operativo, contable, kardex, lote o auditoria. No se borra en limpieza selectiva.' });
+        } else if (row.hasRelations) {
+          riskyToDelete.push({ ...item, classification: 'riskyToDelete', reason: 'Tiene relaciones. Requiere revision manual; no se elimina automaticamente.' });
+        } else {
+          safeToDelete.push({ ...item, classification: 'safeToDelete', reason: 'Posible demo sin relaciones detectadas.' });
+        }
+      }
+    }
+
+    return res.json({
+      safeToDelete,
+      riskyToDelete,
+      blocked,
+      reasons: {
+        safeToDelete: 'Registros no transaccionales y sin relaciones detectadas.',
+        riskyToDelete: 'Registros con relaciones menores o que requieren revision manual.',
+        blocked: 'Registros contables, de inventario, kardex, auditoria o con impacto operativo.'
+      },
+      summary: { safe: safeToDelete.length, risky: riskyToDelete.length, blocked: blocked.length }
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Error generando preview de limpieza demo.', error: error.message });
+  }
+};
+
 const deleteDemoApply = async (req, res) => {
   try {
-    const { confirm, deleteOnlySafe = true } = req.body;
+    const { confirm, deleteOnlySafe = true, onlySafe = true, reason } = req.body;
     if (confirm !== true) return res.status(400).json({ message: 'Debe confirmar con confirm: true.' });
-    if (deleteOnlySafe !== true) return res.status(400).json({ message: 'Por seguridad solo se permite deleteOnlySafe: true.' });
+    if (deleteOnlySafe !== true || onlySafe !== true) return res.status(400).json({ message: 'Por seguridad solo se permite onlySafe: true.' });
+    if (!reason || !String(reason).trim()) return res.status(400).json({ message: 'Debe indicar una razon de limpieza.' });
 
     const preview = await buildDeletePreview(Object.keys(collections), true);
     const deleted = [];
@@ -193,12 +270,117 @@ const deleteDemoApply = async (req, res) => {
       const before = doc.toObject();
       await config.Model.deleteOne({ _id: doc._id, isDemo: true });
       deleted.push(item);
-      await createAuditLog({ req, action: 'DELETE', module: 'dataCleanup', entityId: doc._id, entityType: config.label, description: `Dato demo seguro eliminado: ${item.collection}`, before, metadata: item });
+      await createAuditLog({ req, action: 'DELETE', module: 'dataCleanup', entityId: doc._id, entityType: config.label, description: `Dato demo seguro eliminado: ${item.collection}`, before, metadata: { ...item, reason } });
     }
 
     return res.json({ deletedCount: deleted.length, deleted, blocked: preview.blocked, riskyToDelete: preview.riskyToDelete });
   } catch (error) {
     return res.status(500).json({ message: 'Error aplicando eliminacion demo.', error: error.message });
+  }
+};
+
+const resetOperationalPreview = async (req, res) => {
+  try {
+    const includeAuditLogs = req.body?.includeAuditLogs === true;
+    const collectionsToReset = includeAuditLogs ? [...operationalCollections, 'auditLogs'] : operationalCollections;
+    const counts = {};
+    for (const collection of collectionsToReset) {
+      const config = readinessCollections[collection];
+      if (!config) continue;
+      counts[collection] = await config.Model.countDocuments();
+    }
+
+    const activeAdmins = await User.find({ role: 'admin', status: 'activo' }).select('name email role status').lean();
+    return res.json({
+      enabled: process.env.ALLOW_OPERATIONAL_RESET === 'true',
+      collectionsToReset,
+      counts,
+      totalRecords: Object.values(counts).reduce((sum, count) => sum + count, 0),
+      preserved: {
+        users: await User.countDocuments(),
+        activeAdmins: activeAdmins.length,
+        auditLogs: includeAuditLogs ? 'Se eliminarian porque includeAuditLogs=true.' : 'Se conservan por defecto.'
+      },
+      blockedIfApply: process.env.ALLOW_OPERATIONAL_RESET === 'true' ? [] : ['El reinicio operativo esta deshabilitado por seguridad.'],
+      warning: 'Vista previa solamente. No se modificaron datos.'
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Error generando preview de reinicio operativo.', error: error.message });
+  }
+};
+
+const createOperationalBackup = async (collectionsToReset) => {
+  const backup = { generatedAt: new Date().toISOString(), collections: {} };
+  for (const collection of collectionsToReset) {
+    const config = readinessCollections[collection];
+    if (!config) continue;
+    backup.collections[collection] = await config.Model.find().lean();
+  }
+
+  const backupDir = path.join(__dirname, '..', '..', 'backups');
+  await fs.mkdir(backupDir, { recursive: true });
+  const filename = `operational-reset-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  const fullPath = path.join(backupDir, filename);
+  await fs.writeFile(fullPath, JSON.stringify(backup, null, 2), 'utf8');
+  return { filename, fullPath, collections: Object.keys(backup.collections) };
+};
+
+const resetOperationalApply = async (req, res) => {
+  if (process.env.ALLOW_OPERATIONAL_RESET !== 'true') {
+    return res.status(403).json({ message: 'El reinicio operativo está deshabilitado por seguridad.' });
+  }
+
+  const session = await mongoose.startSession();
+  try {
+    const { confirm, confirmationText, keepUsers = true, keepAdmins = true, reason, includeAuditLogs = false } = req.body || {};
+    if (confirm !== true) return res.status(400).json({ message: 'Debe confirmar con confirm: true.' });
+    if (confirmationText !== 'REINICIAR DATOS OPERATIVOS') return res.status(400).json({ message: 'Texto de confirmacion invalido.' });
+    if (keepUsers !== true || keepAdmins !== true) return res.status(400).json({ message: 'Por seguridad debe conservar usuarios y administradores.' });
+    if (!reason || !String(reason).trim()) return res.status(400).json({ message: 'La razon es obligatoria.' });
+
+    const activeAdminCount = await User.countDocuments({ role: 'admin', status: 'activo' });
+    if (activeAdminCount < 1) return res.status(409).json({ message: 'No se puede reiniciar porque no hay admin activo.' });
+
+    const collectionsToReset = includeAuditLogs ? [...operationalCollections, 'auditLogs'] : operationalCollections;
+    const preview = {};
+    for (const collection of collectionsToReset) {
+      preview[collection] = await readinessCollections[collection].Model.countDocuments();
+    }
+
+    const backup = await createOperationalBackup(collectionsToReset);
+    await createAuditLog({
+      req,
+      action: 'DELETE',
+      module: 'dataCleanup',
+      entityType: 'OperationalReset',
+      description: 'INICIO reinicio controlado de datos operativos',
+      metadata: { reason, preview, backup: backup.filename }
+    });
+
+    const deleted = {};
+    await session.withTransaction(async () => {
+      for (const collection of collectionsToReset) {
+        const config = readinessCollections[collection];
+        if (!config) continue;
+        const result = await config.Model.deleteMany({}, { session });
+        deleted[collection] = result.deletedCount || 0;
+      }
+    });
+
+    await createAuditLog({
+      req,
+      action: 'DELETE',
+      module: 'dataCleanup',
+      entityType: 'OperationalReset',
+      description: 'FIN reinicio controlado de datos operativos',
+      metadata: { reason, deleted, backup: backup.filename, usersPreserved: true, adminsPreserved: true }
+    });
+
+    return res.json({ message: 'Reinicio operativo aplicado.', deleted, backup: backup.filename, usersPreserved: true, adminsPreserved: true });
+  } catch (error) {
+    return res.status(error.statusCode || 500).json({ message: 'Error aplicando reinicio operativo.', error: error.message });
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -326,9 +508,14 @@ module.exports = {
   createInitialBatch,
   deleteDemoApply,
   deleteDemoPreview,
+  demoCleanupPreview,
   detectDemo,
   detectPossibleDemoRecords,
   findProductsWithoutBatches,
   markDemo,
   productsWithoutBatches
+  ,
+  realReadiness,
+  resetOperationalApply,
+  resetOperationalPreview
 };

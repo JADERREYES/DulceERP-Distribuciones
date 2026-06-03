@@ -15,6 +15,18 @@ const buildBatchNumber = (sku) => {
   return `LOTE-${sku || 'SKU'}-${date}-${suffix}`;
 };
 
+const logPurchasePayload = (req) => {
+  if (process.env.NODE_ENV === 'production') return;
+  const { supplier, items, paymentMethod, invoiceNumber } = req.body || {};
+  console.log('Payload compra recibido:', {
+    supplier,
+    itemsLength: Array.isArray(items) ? items.length : 0,
+    paymentMethod,
+    invoiceNumber,
+    user: req.user?._id?.toString?.() || req.user?.id
+  });
+};
+
 const purchaseValidationError = (message, field) => {
   const error = new Error(message);
   error.statusCode = 400;
@@ -111,6 +123,7 @@ const getPurchases = async (req, res) => {
 
 const validatePurchase = async (req, res) => {
   try {
+    logPurchasePayload(req);
     const validation = await validatePurchasePayload(req.body);
     return res.json({
       ok: true,
@@ -133,7 +146,8 @@ const validatePurchase = async (req, res) => {
 const createPurchase = async (req, res) => {
   const session = await mongoose.startSession();
   try {
-    const { supplier: supplierId, items, paymentMethod, invoiceNumber, note } = req.body;
+    logPurchasePayload(req);
+    const { paymentMethod, invoiceNumber, note } = req.body;
 
     let createdPurchase;
 

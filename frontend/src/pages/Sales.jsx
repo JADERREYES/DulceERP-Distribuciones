@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../api/axios';
+import { useAuth } from '../context/AuthContext';
 import { exportToCsv, formatDate } from '../utils/exportUtils';
 
 const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 
 export default function Sales() {
+  const { user } = useAuth();
   const [sales, setSales] = useState([]);
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [expiringBatches, setExpiringBatches] = useState([]);
-  const [form, setForm] = useState({ customer: '', product: '', quantity: 1, paymentMethod: 'contado', routeZone: '' });
+  const [form, setForm] = useState({ customer: '', product: '', quantity: 1, unitPrice: '', paymentMethod: 'contado', routeZone: '', note: '' });
   const [showForm, setShowForm] = useState(false);
   const [orderItems, setOrderItems] = useState([]);
   const [lastSale, setLastSale] = useState(null);
@@ -18,6 +20,9 @@ export default function Sales() {
   const [validationSummary, setValidationSummary] = useState(null);
   const [saleFilters, setSaleFilters] = useState({ customer: '', status: '', paymentMethod: '', paymentStatus: '', from: '', to: '' });
   const [selectedSale, setSelectedSale] = useState(null);
+  const [selectedProductAvailability, setSelectedProductAvailability] = useState(null);
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [showNonSellableBatches, setShowNonSellableBatches] = useState(false);
 
   const selectedProduct = useMemo(() => products.find((product) => product._id === form.product), [products, form.product]);
   const selectedProductExpiringBatches = useMemo(() => expiringBatches.filter((batch) => batch.product?._id === form.product), [expiringBatches, form.product]);
@@ -25,6 +30,7 @@ export default function Sales() {
   const total = orderItems.reduce((sum, item) => sum + item.quantity * item.salePrice, 0);
   const estimatedProfit = orderItems.reduce((sum, item) => sum + item.quantity * (item.salePrice - item.unitCost), 0);
   const filteredSales = sales;
+  const canCreateSale = ['admin', 'vendedor'].includes(user?.role);
 
   const loadData = async () => {
     const params = new URLSearchParams({ limit: '100' });
@@ -48,24 +54,65 @@ export default function Sales() {
     loadData().catch((err) => setError(err.response?.data?.message || 'Error cargando ventas.'));
   }, []);
 
+  useEffect(() => {
+    setSelectedProductAvailability(null);
+    setShowNonSellableBatches(false);
+    if (!form.product) return;
+
+    let cancelled = false;
+    setAvailabilityLoading(true);
+    api
+      .get(`/products/${form.product}/sale-availability`)
+      .then(({ data }) => {
+        if (!cancelled) setSelectedProductAvailability(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(backendMessage(err, 'Error consultando disponibilidad FEFO del producto.'));
+      })
+      .finally(() => {
+        if (!cancelled) setAvailabilityLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [form.product]);
+
   const addProduct = () => {
     setError('');
     if (!selectedProduct) {
-      setError('Selecciona un producto.');
+      setError('Seleccione un producto valido.');
       return;
     }
 
     const quantity = Number(form.quantity);
     if (!quantity || quantity < 1) {
-      setError('La cantidad debe ser mayor a 0.');
+      setError('La cantidad debe ser mayor que cero.');
+      return;
+    }
+
+    const unitPrice = Number(form.unitPrice || selectedProduct.salePrice);
+    if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+      setError('El precio de venta debe ser mayor que cero.');
       return;
     }
 
     const existing = orderItems.find((item) => item.product === selectedProduct._id);
     const requestedQuantity = quantity + Number(existing?.quantity || 0);
+    const maxSellableQuantity = Number(selectedProductAvailability?.availability?.maxSellableQuantity ?? selectedProduct.stock ?? 0);
 
     if (requestedQuantity > selectedProduct.stock) {
       setError(`Stock insuficiente para ${selectedProduct.name}. Disponible: ${selectedProduct.stock}`);
+      return;
+    }
+
+    if (selectedProductAvailability && maxSellableQuantity <= 0) {
+      setError('Este producto no tiene lotes disponibles para venta.');
+      return;
+    }
+
+    if (selectedProductAvailability && requestedQuantity > maxSellableQuantity) {
+      setError(`Solo hay ${maxSellableQuantity} unidades vendibles por lotes disponibles.`);
       return;
     }
 
@@ -83,14 +130,15 @@ export default function Sales() {
           name: selectedProduct.name,
           sku: selectedProduct.sku,
           quantity,
-          salePrice: Number(selectedProduct.salePrice),
+          salePrice: unitPrice,
           unitCost: Number(selectedProduct.unitCost),
-          stock: Number(selectedProduct.stock)
+          stock: Number(selectedProduct.stock),
+          maxSellableQuantity
         }
       ]);
     }
 
-    setForm((current) => ({ ...current, product: '', quantity: 1 }));
+    setForm((current) => ({ ...current, product: '', quantity: 1, unitPrice: '' }));
   };
 
   const removeItem = (productId) => {
@@ -101,6 +149,7 @@ export default function Sales() {
     customer: form.customer,
     paymentMethod: form.paymentMethod,
     routeZone: form.routeZone,
+    note: form.note || '',
     items: orderItems.map((item) => ({
       product: item.product,
       quantity: Number(item.quantity),
@@ -116,11 +165,9 @@ export default function Sales() {
 
   const validateBeforeSend = () => {
     if (!form.customer) return 'Seleccione un cliente.';
-    if (orderItems.length === 0) {
-      return 'Agregue al menos un producto a la venta.';
-    }
     if (!form.paymentMethod) return 'Seleccione una forma de pago.';
     if (!form.routeZone || !String(form.routeZone).trim()) return 'Seleccione zona o ruta.';
+    if (orderItems.length === 0) return 'Agregue al menos un producto.';
 
     for (const item of orderItems) {
       if (!item.product) return 'Seleccione un producto valido.';
@@ -128,6 +175,9 @@ export default function Sales() {
       if (!Number.isFinite(Number(item.salePrice)) || Number(item.salePrice) <= 0) return 'El precio de venta debe ser mayor que cero.';
       if (Number(item.stock) <= 0) return 'El producto no tiene stock disponible.';
       if (Number(item.quantity) > Number(item.stock)) return `Stock insuficiente para ${item.name}. Disponible: ${item.stock}`;
+      if (item.maxSellableQuantity !== undefined && Number(item.quantity) > Number(item.maxSellableQuantity)) {
+        return `Solo hay ${item.maxSellableQuantity} unidades vendibles por lotes disponibles para ${item.name}.`;
+      }
     }
     return '';
   };
@@ -153,7 +203,9 @@ export default function Sales() {
       return validationRes.data;
     } catch (err) {
       if (import.meta.env.DEV && err.response?.data?.details) console.log('Detalles validacion venta', err.response.data.details);
-      setError(backendMessage(err, 'No se pudo validar la venta.'));
+      const msg = backendMessage(err, 'No se pudo validar la venta.');
+      const hint = msg.includes('No hay lotes disponibles suficientes') ? ' Revise lotes vencidos, stock sin lote o disponibilidad FEFO.' : '';
+      setError(`${msg}${hint}`);
       return null;
     }
   };
@@ -173,7 +225,7 @@ export default function Sales() {
       const saleRes = await api.post('/sales', payload);
 
       setLastSale(saleRes.data);
-      setForm({ customer: '', product: '', quantity: 1, paymentMethod: 'contado', routeZone: '' });
+      setForm({ customer: '', product: '', quantity: 1, unitPrice: '', paymentMethod: 'contado', routeZone: '', note: '' });
       setOrderItems([]);
       setShowForm(false);
       setValidationSummary(null);
@@ -181,7 +233,9 @@ export default function Sales() {
       await loadData();
     } catch (err) {
       if (import.meta.env.DEV && err.response?.data?.details) console.log('Detalles error venta', err.response.data.details);
-      setError(backendMessage(err, 'No se pudo registrar la venta.'));
+      const msg = backendMessage(err, 'No se pudo registrar la venta.');
+      const hint = msg.includes('No hay lotes disponibles suficientes') ? ' Revise lotes vencidos, stock sin lote o disponibilidad FEFO.' : '';
+      setError(`${msg}${hint}`);
     }
   };
 
@@ -219,18 +273,26 @@ export default function Sales() {
   const updateSaleFilter = (field, value) => setSaleFilters((current) => ({ ...current, [field]: value }));
 
   const startNewSale = () => {
-    setForm({ customer: '', product: '', quantity: 1, paymentMethod: 'contado', routeZone: '' });
+    if (!canCreateSale) {
+      setError('No tienes permisos para registrar ventas.');
+      return;
+    }
+    setForm({ customer: '', product: '', quantity: 1, unitPrice: '', paymentMethod: 'contado', routeZone: '', note: '' });
     setOrderItems([]);
     setValidationSummary(null);
+    setSelectedProductAvailability(null);
+    setShowNonSellableBatches(false);
     setError('');
     setSuccess('');
     setShowForm(true);
   };
 
   const cancelNewSale = () => {
-    setForm({ customer: '', product: '', quantity: 1, paymentMethod: 'contado', routeZone: '' });
+    setForm({ customer: '', product: '', quantity: 1, unitPrice: '', paymentMethod: 'contado', routeZone: '', note: '' });
     setOrderItems([]);
     setValidationSummary(null);
+    setSelectedProductAvailability(null);
+    setShowNonSellableBatches(false);
     setShowForm(false);
   };
 
@@ -242,37 +304,144 @@ export default function Sales() {
       </div>
 
       <div className="module-toolbar">
-        <button className="button primary" type="button" onClick={startNewSale}>Nueva venta</button>
-        <button className="button secondary" type="button" onClick={validateSaleWithBackend} disabled={!showForm}>Validar venta</button>
+        {canCreateSale && <button className="button primary" type="button" onClick={startNewSale}>Nueva venta</button>}
+        {canCreateSale && <button className="button secondary" type="button" onClick={validateSaleWithBackend} disabled={!showForm}>Validar venta</button>}
         <button className="button secondary" type="button" onClick={exportSales}>Exportar</button>
         <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
 
       {showForm && <form className="form-grid" onSubmit={handleSubmit}>
         <div className="section-heading wide"><h3>Nueva venta</h3><span>Valide inventario antes de guardar</span></div>
-        <label>Cliente<select value={form.customer} onChange={(e) => {
+        <label htmlFor="sale-customer">Cliente<select id="sale-customer" name="customer" value={form.customer} onChange={(e) => {
           const customer = customers.find((item) => item._id === e.target.value);
           setForm({ ...form, customer: e.target.value, routeZone: customer?.zone || form.routeZone });
         }} required>
           <option value="">Seleccionar</option>{customers.map((customer) => <option key={customer._id} value={customer._id}>{customer.name} - {customer.status}</option>)}
         </select></label>
-        <label>Forma de pago<select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+        <label htmlFor="sale-payment-method">Forma de pago<select id="sale-payment-method" name="paymentMethod" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
           <option value="">Seleccionar</option><option value="contado">Contado</option><option value="credito">Credito</option>
         </select></label>
-        <label>Zona/ruta<input value={form.routeZone} onChange={(e) => setForm({ ...form, routeZone: e.target.value })} required /></label>
-        <label>Producto<select value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })}>
+        <label htmlFor="sale-route-zone">Zona/ruta<input id="sale-route-zone" name="routeZone" value={form.routeZone} onChange={(e) => setForm({ ...form, routeZone: e.target.value })} required /></label>
+        <label htmlFor="sale-product">Producto<select id="sale-product" name="product" value={form.product} onChange={(e) => {
+          const product = products.find((item) => item._id === e.target.value);
+          setForm({ ...form, product: e.target.value, unitPrice: product?.salePrice ?? '' });
+        }}>
           <option value="">Seleccionar</option>{products.map((product) => <option key={product._id} value={product._id}>{product.name} - Stock {product.stock}</option>)}
         </select></label>
-        <label>Cantidad<input type="number" min="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></label>
-        <button className="button secondary" type="button" onClick={addProduct} disabled={selectedProduct && Number(form.quantity) > Number(selectedProduct.stock)}>Agregar producto</button>
+        <label htmlFor="sale-quantity">Cantidad<input id="sale-quantity" name="quantity" type="number" min="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></label>
+        <label htmlFor="sale-unit-price">Precio venta<input id="sale-unit-price" name="unitPrice" type="number" min="1" value={form.unitPrice} onChange={(e) => setForm({ ...form, unitPrice: e.target.value })} /></label>
+        <label className="wide" htmlFor="sale-note">Nota<textarea id="sale-note" name="note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
+        <button
+          className="button secondary"
+          type="button"
+          onClick={addProduct}
+          disabled={
+            Boolean(selectedProduct) &&
+            (
+              Number(form.quantity) > Number(selectedProduct.stock) ||
+              (selectedProductAvailability && Number(form.quantity) > Number(selectedProductAvailability.availability?.maxSellableQuantity || 0)) ||
+              (selectedProductAvailability && Number(selectedProductAvailability.availability?.maxSellableQuantity || 0) <= 0)
+            )
+          }
+        >
+          Agregar producto
+        </button>
         <div className="inline-total">Total pedido: {money.format(total)}</div>
         <div className="inline-total">Utilidad estimada: {money.format(estimatedProfit)}</div>
-        <button className="button secondary" type="button" onClick={validateSaleWithBackend}>Validar venta</button>
-        <button className="button primary" type="submit">Guardar venta</button>
+        {canCreateSale && <button className="button secondary" type="button" onClick={validateSaleWithBackend}>Validar venta</button>}
+        {canCreateSale && <button className="button primary" type="submit">Guardar venta</button>}
         <button className="button ghost" type="button" onClick={cancelNewSale}>Cancelar</button>
       </form>}
       {selectedCustomer && <div className="notice info">Zona sugerida: {selectedCustomer.zone}. Cupo disponible: {money.format(Number(selectedCustomer.creditLimit) - Number(selectedCustomer.currentDebt))}</div>}
-      {selectedProduct && <div className={`notice ${selectedProduct.status === 'agotado' ? 'danger' : selectedProduct.status === 'bajo_stock' || selectedProduct.status === 'proximo_vencer' ? 'warning' : 'info'}`}>Stock disponible: {selectedProduct.stock}. Estado: {selectedProduct.status}</div>}
+      {selectedProduct && <div className={`notice ${selectedProduct.status === 'agotado' ? 'danger' : selectedProduct.status === 'bajo_stock' || selectedProduct.status === 'proximo_vencer' ? 'warning' : 'info'}`}>Stock disponible: {selectedProduct.stock}. Precio: {money.format(selectedProduct.salePrice)}. Estado: {selectedProduct.status}. La disponibilidad por lotes se valida con FEFO antes de guardar.</div>}
+      {availabilityLoading && <div className="notice info">Consultando disponibilidad FEFO del producto...</div>}
+      {selectedProductAvailability && (
+        <div className="detail-panel">
+          <h3>Disponibilidad FEFO</h3>
+          <p>{selectedProductAvailability.product.name} - {selectedProductAvailability.product.sku}</p>
+          <div className="kpi-grid">
+            <div className="kpi-card"><span>Stock general</span><strong>{selectedProductAvailability.availability.generalStock}</strong></div>
+            <div className="kpi-card"><span>Vendible por lotes</span><strong>{selectedProductAvailability.availability.sellableBatchQuantity}</strong></div>
+            <div className="kpi-card"><span>No vendible</span><strong>{selectedProductAvailability.availability.expiredBatchQuantity + selectedProductAvailability.availability.blockedBatchQuantity}</strong></div>
+            <div className="kpi-card"><span>Máximo vendible</span><strong>{selectedProductAvailability.availability.maxSellableQuantity}</strong></div>
+          </div>
+
+          {selectedProductAvailability.availability.sellableBatchQuantity < selectedProductAvailability.availability.generalStock && (
+            <div className="notice warning">El producto tiene stock general, pero no todos sus lotes son vendibles.</div>
+          )}
+          {Number(form.quantity) > Number(selectedProductAvailability.availability.maxSellableQuantity) && (
+            <div className="notice danger">Solo hay {selectedProductAvailability.availability.maxSellableQuantity} unidades vendibles por lotes disponibles.</div>
+          )}
+          {selectedProductAvailability.availability.maxSellableQuantity <= 0 && (
+            <div className="notice danger">Este producto no tiene lotes disponibles para venta.</div>
+          )}
+
+          {selectedProductAvailability.warnings?.length > 0 && (
+            <ul>
+              {selectedProductAvailability.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+            </ul>
+          )}
+
+          {selectedProductAvailability.sellableBatches?.length > 0 && (
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Lote vendible</th><th>Cantidad</th><th>Vencimiento</th><th>Días para vencer</th></tr></thead>
+                <tbody>
+                  {selectedProductAvailability.sellableBatches.map((batch) => (
+                    <tr key={batch._id}>
+                      <td>{batch.batchNumber}</td>
+                      <td>{batch.availableQuantity}</td>
+                      <td>{formatDate(batch.expirationDate)}</td>
+                      <td>{batch.daysToExpire}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {selectedProductAvailability.nonSellableBatches?.length > 0 && (
+            <>
+              <button className="button ghost" type="button" onClick={() => setShowNonSellableBatches((current) => !current)}>
+                {showNonSellableBatches ? 'Ocultar lotes no vendibles' : 'Ver lotes no vendibles'}
+              </button>
+              {showNonSellableBatches && (
+                <div className="table-wrap">
+                  <table>
+                    <thead><tr><th>Lote</th><th>Cantidad</th><th>Estado</th><th>Vencimiento</th><th>Motivo</th></tr></thead>
+                    <tbody>
+                      {selectedProductAvailability.nonSellableBatches.map((batch) => (
+                        <tr key={batch._id}>
+                          <td>{batch.batchNumber}</td>
+                          <td>{batch.availableQuantity}</td>
+                          <td><span className={`badge ${batch.status}`}>{batch.status}</span></td>
+                          <td>{formatDate(batch.expirationDate)}</td>
+                          <td>{batch.reason}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
+          {selectedProductAvailability.recommendations?.length > 0 && (
+            <div className="notice info">
+              <strong>Acciones sugeridas:</strong>
+              <ul>
+                {selectedProductAvailability.recommendations.map((recommendation) => <li key={recommendation}>{recommendation}</li>)}
+              </ul>
+            </div>
+          )}
+
+          <div className="module-toolbar">
+            <a className="button secondary" href={`/batches?product=${selectedProductAvailability.product._id}`}>Ver lotes del producto</a>
+            <a className="button secondary" href="/data-cleanup">Ir a Limpieza de datos</a>
+            <a className="button ghost" href="/reconciliation">Ver conciliación</a>
+          </div>
+        </div>
+      )}
       {selectedProductExpiringBatches.length > 0 && <div className="notice warning">Este producto tiene {selectedProductExpiringBatches.length} lote(s) proximos a vencer. FEFO los priorizara en la venta.</div>}
 
       {error && <p className="error">{error}</p>}
@@ -323,27 +492,27 @@ export default function Sales() {
       )}
 
       <div className="module-toolbar">
-        <select value={saleFilters.customer} onChange={(e) => updateSaleFilter('customer', e.target.value)}>
+        <select id="sale-filter-customer" name="filterCustomer" value={saleFilters.customer} onChange={(e) => updateSaleFilter('customer', e.target.value)}>
           <option value="">Todos los clientes</option>
           {customers.map((customer) => <option key={customer._id} value={customer._id}>{customer.name}</option>)}
         </select>
-        <select value={saleFilters.status} onChange={(e) => updateSaleFilter('status', e.target.value)}>
+        <select id="sale-filter-status" name="filterStatus" value={saleFilters.status} onChange={(e) => updateSaleFilter('status', e.target.value)}>
           <option value="">Todos los estados</option>
           <option value="activa">Activas</option>
           <option value="anulada">Anuladas</option>
         </select>
-        <select value={saleFilters.paymentMethod} onChange={(e) => updateSaleFilter('paymentMethod', e.target.value)}>
+        <select id="sale-filter-payment-method" name="filterPaymentMethod" value={saleFilters.paymentMethod} onChange={(e) => updateSaleFilter('paymentMethod', e.target.value)}>
           <option value="">Todos los metodos</option>
           <option value="contado">Contado</option>
           <option value="credito">Credito</option>
         </select>
-        <select value={saleFilters.paymentStatus} onChange={(e) => updateSaleFilter('paymentStatus', e.target.value)}>
+        <select id="sale-filter-payment-status" name="filterPaymentStatus" value={saleFilters.paymentStatus} onChange={(e) => updateSaleFilter('paymentStatus', e.target.value)}>
           <option value="">Todos los pagos</option>
           <option value="pendiente">Pendiente</option>
           <option value="pagado">Pagado</option>
         </select>
-        <input type="date" value={saleFilters.from} onChange={(e) => updateSaleFilter('from', e.target.value)} />
-        <input type="date" value={saleFilters.to} onChange={(e) => updateSaleFilter('to', e.target.value)} />
+        <input id="sale-filter-from" name="filterFrom" type="date" value={saleFilters.from} onChange={(e) => updateSaleFilter('from', e.target.value)} />
+        <input id="sale-filter-to" name="filterTo" type="date" value={saleFilters.to} onChange={(e) => updateSaleFilter('to', e.target.value)} />
         <button className="button primary" type="button" onClick={loadData}>Consultar</button>
       </div>
 
