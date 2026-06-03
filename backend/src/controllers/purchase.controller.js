@@ -15,6 +15,79 @@ const buildBatchNumber = (sku) => {
   return `LOTE-${sku || 'SKU'}-${date}-${suffix}`;
 };
 
+const purchaseValidationError = (message, field) => {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.field = field;
+  return error;
+};
+
+const validatePurchasePayload = async (payload, options = {}) => {
+  const { supplier: supplierId, items, paymentMethod, invoiceNumber } = payload;
+
+  if (!supplierId) throw purchaseValidationError('Debe seleccionar un proveedor.', 'supplier');
+  if (!mongoose.Types.ObjectId.isValid(supplierId)) throw purchaseValidationError('El proveedor seleccionado no existe.', 'supplier');
+
+  if (!invoiceNumber || !String(invoiceNumber).trim()) {
+    throw purchaseValidationError('El numero de factura es obligatorio.', 'invoiceNumber');
+  }
+
+  if (!paymentMethod) throw purchaseValidationError('Debe seleccionar metodo de pago.', 'paymentMethod');
+  if (!['contado', 'credito'].includes(paymentMethod)) {
+    throw purchaseValidationError('El metodo de pago no es valido.', 'paymentMethod');
+  }
+
+  if (!Array.isArray(items) || items.length === 0) {
+    throw purchaseValidationError('Debe agregar al menos un producto a la compra.', 'items');
+  }
+
+  const supplierQuery = Supplier.findById(supplierId).select('name document status currentDebt creditLimit paymentTermDays');
+  const supplier = options.session ? await supplierQuery.session(options.session) : await supplierQuery;
+  if (!supplier) throw purchaseValidationError('El proveedor seleccionado no existe.', 'supplier');
+
+  const validatedItems = [];
+  let total = 0;
+
+  for (const [index, item] of items.entries()) {
+    const fieldPrefix = `items.${index}`;
+    if (!item.product) throw purchaseValidationError('Debe seleccionar un producto.', `${fieldPrefix}.product`);
+    if (!mongoose.Types.ObjectId.isValid(item.product)) {
+      throw purchaseValidationError('El producto seleccionado no existe.', `${fieldPrefix}.product`);
+    }
+
+    const productQuery = Product.findById(item.product).select('name sku stock unitCost');
+    const product = options.session ? await productQuery.session(options.session) : await productQuery;
+    if (!product) throw purchaseValidationError('El producto seleccionado no existe.', `${fieldPrefix}.product`);
+
+    const quantity = Number(item.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw purchaseValidationError('La cantidad debe ser mayor que cero.', `${fieldPrefix}.quantity`);
+    }
+
+    const unitCost = Number(item.unitCost);
+    if (!Number.isFinite(unitCost) || unitCost <= 0) {
+      throw purchaseValidationError('El costo unitario debe ser mayor que cero.', `${fieldPrefix}.unitCost`);
+    }
+
+    if (!item.expirationDate) {
+      throw purchaseValidationError('La fecha de vencimiento del lote es obligatoria.', `${fieldPrefix}.expirationDate`);
+    }
+
+    const expirationDate = new Date(item.expirationDate);
+    if (Number.isNaN(expirationDate.getTime())) {
+      throw purchaseValidationError('La fecha de vencimiento del lote es obligatoria.', `${fieldPrefix}.expirationDate`);
+    }
+
+    const batchNumber = item.batchNumber?.trim() || buildBatchNumber(product.sku);
+    const subtotal = quantity * unitCost;
+    total += subtotal;
+
+    validatedItems.push({ product, quantity, unitCost, batchNumber, expirationDate, subtotal, fieldPrefix });
+  }
+
+  return { supplier, items: validatedItems, total };
+};
+
 const getPurchases = async (req, res) => {
   try {
     const { search, status, paymentMethod, paymentStatus, supplier } = req.query;
@@ -36,48 +109,50 @@ const getPurchases = async (req, res) => {
   }
 };
 
+const validatePurchase = async (req, res) => {
+  try {
+    const validation = await validatePurchasePayload(req.body);
+    return res.json({
+      ok: true,
+      message: 'La compra es valida y puede registrarse.',
+      summary: {
+        supplier: validation.supplier.name,
+        itemsCount: validation.items.length,
+        total: validation.total
+      }
+    });
+  } catch (error) {
+    return res.status(error.statusCode || 400).json({
+      ok: false,
+      message: error.message || 'No se pudo validar la compra.',
+      field: error.field
+    });
+  }
+};
+
 const createPurchase = async (req, res) => {
   const session = await mongoose.startSession();
   try {
     const { supplier: supplierId, items, paymentMethod, invoiceNumber, note } = req.body;
-    if (!supplierId || !Array.isArray(items) || items.length === 0 || !paymentMethod) {
-      return res.status(400).json({ message: 'Proveedor, productos y forma de pago son obligatorios.' });
-    }
-    if (!['contado', 'credito'].includes(paymentMethod)) {
-      return res.status(400).json({ message: 'Forma de pago invalida.' });
-    }
 
     let createdPurchase;
 
     await session.withTransaction(async () => {
-      const supplier = await Supplier.findById(supplierId).session(session);
-      if (!supplier) throw Object.assign(new Error('Proveedor no encontrado.'), { statusCode: 404 });
+      const validation = await validatePurchasePayload(req.body, { session });
+      const supplier = validation.supplier;
 
       const purchaseItems = [];
       const pendingBatches = [];
       const pendingCosts = [];
       let total = 0;
 
-      for (const item of items) {
-        const product = await Product.findById(item.product).session(session);
-        if (!product) throw Object.assign(new Error(`Producto no encontrado: ${item.product}`), { statusCode: 404 });
-        const quantity = Number(item.quantity);
-        const unitCost = Number(item.unitCost);
-        if (!quantity || quantity < 1 || !unitCost || unitCost <= 0) {
-          throw Object.assign(new Error(`Cantidad o costo invalido para ${product.name}.`), { statusCode: 400 });
-        }
-        if (!item.expirationDate) {
-          throw Object.assign(new Error('La fecha de vencimiento del lote es obligatoria.'), { statusCode: 400 });
-        }
-        const expirationDate = new Date(item.expirationDate);
-        if (Number.isNaN(expirationDate.getTime())) {
-          throw Object.assign(new Error(`Fecha de vencimiento invalida para ${product.name}.`), { statusCode: 400 });
-        }
-        const batchNumber = item.batchNumber?.trim() || buildBatchNumber(product.sku);
+      for (const item of validation.items) {
+        const product = await Product.findById(item.product._id).session(session);
+        if (!product) throw purchaseValidationError('El producto seleccionado no existe.', `${item.fieldPrefix}.product`);
+        const { quantity, unitCost, batchNumber, expirationDate, subtotal } = item;
 
         const previousStock = Number(product.stock || 0);
         const previousCost = Number(product.unitCost || 0);
-        const subtotal = quantity * unitCost;
         const newStock = previousStock + quantity;
         const weightedCost = previousStock <= 0 ? unitCost : ((previousStock * previousCost) + subtotal) / newStock;
         if (!Number.isFinite(weightedCost) || weightedCost < 0) {
@@ -153,7 +228,11 @@ const createPurchase = async (req, res) => {
     await createAuditLog({ req, action: 'CREATE', module: 'batches', entityId: populated._id, entityType: 'Purchase', description: 'Lotes creados por compra', metadata: { purchase: populated._id, batches: populated.items.map((item) => item.batchNumber).filter(Boolean) } });
     return res.status(201).json(populated);
   } catch (error) {
-    return res.status(error.statusCode || 400).json({ message: 'Error registrando compra.', error: error.message });
+    return res.status(error.statusCode || 400).json({
+      message: error.message || 'Error registrando compra.',
+      field: error.field,
+      error: error.message
+    });
   } finally {
     await session.endSession();
   }
@@ -212,4 +291,4 @@ const cancelPurchase = async (req, res) => {
   }
 };
 
-module.exports = { getPurchases, createPurchase, cancelPurchase };
+module.exports = { getPurchases, validatePurchase, createPurchase, cancelPurchase };

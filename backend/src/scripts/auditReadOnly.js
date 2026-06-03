@@ -37,6 +37,43 @@ const models = {
 };
 
 const money = (value) => Number(value || 0).toLocaleString('es-CO');
+const number = (value) => Number(value || 0);
+
+const toDateOnly = (date) => {
+  const value = new Date(date);
+  return Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate());
+};
+
+const daysExpired = (expirationDate, referenceDate = new Date()) => {
+  if (!expirationDate) return null;
+  const expiration = toDateOnly(expirationDate);
+  const reference = toDateOnly(referenceDate);
+  return Math.max(0, Math.floor((reference - expiration) / (1000 * 60 * 60 * 24)));
+};
+
+const expiredBatchRecommendation = () => (
+  'Registrar merma por vencimiento si el producto no es comercializable; bloquear lote mientras se revisa; corregir fecha con razon si fue error de digitacion.'
+);
+
+const stockDifferenceCause = (difference, hasBatches) => {
+  if (!hasBatches) {
+    return 'Producto con stock maestro pero sin lotes registrados; posible inventario historico anterior a lotes o carga inicial pendiente.';
+  }
+  if (difference > 0) {
+    return 'Stock maestro mayor que lotes disponibles; posible compra/venta historica sin lote, carga inicial pendiente o movimiento no asociado a lote.';
+  }
+  if (difference < 0) {
+    return 'Lotes disponibles superan stock maestro; posible salida, merma, venta, anulacion o reverso aplicado de forma parcial entre producto y lote.';
+  }
+  return 'Sin diferencia.';
+};
+
+const stockDifferenceRecommendation = (hasBatches) => {
+  if (!hasBatches) {
+    return 'Verificar inventario fisico y crear carga inicial de lote real solo con autorizacion; no ajustar stock automaticamente.';
+  }
+  return 'Revisar Kardex, compras, ventas, mermas y lotes del producto; aplicar correccion controlada solo con autorizacion.';
+};
 
 const sum = async (Model, field, filter = {}) => {
   const result = await Model.aggregate([
@@ -52,32 +89,62 @@ const collectStockVsBatches = async () => {
   for (const product of products) {
     const batches = await ProductBatch.find({ product: product._id }).select('availableQuantity').lean();
     if (batches.length === 0) {
+      const stock = number(product.stock);
       rows.push({
+        producto: product.name,
         product: product.name,
         sku: product.sku,
         status: 'partial',
-        stock: product.stock,
-        batchStock: null,
-        difference: null,
+        stockProducto: stock,
+        stock,
+        sumaLotesDisponibles: 0,
+        batchStock: 0,
+        diferencia: stock,
+        difference: stock,
+        posibleCausa: stockDifferenceCause(stock, false),
+        accionRecomendada: stockDifferenceRecommendation(false),
         reason: 'Producto sin lotes historicos.'
       });
       continue;
     }
-    const batchStock = batches.reduce((total, batch) => total + Number(batch.availableQuantity || 0), 0);
-    const difference = Number(product.stock || 0) - batchStock;
+    const batchStock = batches.reduce((total, batch) => total + number(batch.availableQuantity), 0);
+    const stock = number(product.stock);
+    const difference = stock - batchStock;
     if (difference !== 0) {
       rows.push({
+        producto: product.name,
         product: product.name,
         sku: product.sku,
         status: 'inconsistent',
-        stock: product.stock,
+        stockProducto: stock,
+        stock,
+        sumaLotesDisponibles: batchStock,
         batchStock,
+        diferencia: difference,
         difference,
+        posibleCausa: stockDifferenceCause(difference, true),
+        accionRecomendada: stockDifferenceRecommendation(true),
         reason: 'Stock de producto no coincide con suma de lotes.'
       });
     }
   }
   return rows;
+};
+
+const buildExpiredBatchDiagnostic = (row, referenceDate = new Date()) => {
+  const cantidadDisponible = number(row.availableQuantity);
+  const costoUnitario = number(row.unitCost);
+  return {
+    producto: row.product?.name || 'Producto no encontrado',
+    sku: row.product?.sku || 'Sin SKU',
+    lote: row.batchNumber,
+    cantidadDisponible,
+    vencimiento: row.expirationDate,
+    diasVencido: daysExpired(row.expirationDate, referenceDate),
+    costoUnitario,
+    valorEstimado: cantidadDisponible * costoUnitario,
+    recomendacion: expiredBatchRecommendation()
+  };
 };
 
 const main = async () => {
@@ -141,6 +208,8 @@ const main = async () => {
     totalWasteCost
   };
 
+  const expiredBatchDiagnostics = expiredBatchesWithStock.map((row) => buildExpiredBatchDiagnostic(row, now));
+
   const report = {
     generatedAt: new Date().toISOString(),
     mode: 'READ_ONLY',
@@ -156,6 +225,10 @@ const main = async () => {
       stockVsBatches,
       canceledSalesWithBalance,
       canceledPurchasesWithBalance
+    },
+    inventoryDiagnostics: {
+      expiredBatchesWithStock: expiredBatchDiagnostics,
+      stockVsBatches
     },
     financial
   };
@@ -198,18 +271,10 @@ const main = async () => {
     for (const [name, rows] of relevant) {
       console.log(`\n${name}:`);
       if (name === 'expiredBatchesWithStock') {
-        rows.slice(0, 10).forEach((row) => console.log(JSON.stringify({
-          producto: row.product?.name,
-          sku: row.product?.sku,
-          lote: row.batchNumber,
-          cantidad: row.availableQuantity,
-          vencimiento: row.expirationDate,
-          costoTotal: Number(row.availableQuantity || 0) * Number(row.unitCost || 0)
-        })));
+        expiredBatchDiagnostics.forEach((row) => console.log(JSON.stringify(row)));
       } else {
-        rows.slice(0, 10).forEach((row) => console.log(JSON.stringify(row)));
+        rows.forEach((row) => console.log(JSON.stringify(row)));
       }
-      if (rows.length > 10) console.log(`... ${rows.length - 10} registros adicionales`);
     }
   }
 
