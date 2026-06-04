@@ -128,7 +128,7 @@ export default function Sales() {
     const existing = orderItems.find((item) => item.product === product._id);
     const requestedQuantity = quantity + Number(existing?.quantity || 0);
     if (requestedQuantity > sellableQuantity) {
-      setError(`Solo hay ${sellableQuantity} unidades vendibles para este producto.`);
+      setError(`Solo hay ${sellableQuantity} unidades disponibles para vender.`);
       setForm((current) => ({ ...current, product: product._id, unitPrice: product.salePrice ?? '' }));
       return;
     }
@@ -195,7 +195,7 @@ export default function Sales() {
       if (Number(item.stock) <= 0) return 'El producto no tiene stock disponible.';
       if (Number(item.quantity) > Number(item.stock)) return `Stock insuficiente para ${item.name}. Disponible: ${item.stock}`;
       if (item.maxSellableQuantity !== undefined && Number(item.quantity) > Number(item.maxSellableQuantity)) {
-        return `Solo hay ${item.maxSellableQuantity} unidades vendibles por lotes disponibles para ${item.name}.`;
+        return `Solo hay ${item.maxSellableQuantity} unidades disponibles para vender de ${item.name}.`;
       }
     }
     return '';
@@ -321,18 +321,17 @@ export default function Sales() {
     <div className="page-stack">
       <div className="page-title">
         <h2>Ventas</h2>
-        <p>Pedidos multiproducto con inventario, costo de venta, utilidad y cartera.</p>
+        <p>Registro rapido de pedidos con productos disponibles por FEFO.</p>
       </div>
 
       <div className="module-toolbar">
         {canCreateSale && <button className="button primary" type="button" onClick={startNewSale}>Nueva venta</button>}
-        {canCreateSale && <button className="button secondary" type="button" onClick={validateSaleWithBackend} disabled={!showForm}>Validar venta</button>}
         <button className="button secondary" type="button" onClick={exportSales}>Exportar</button>
         <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
 
       {showForm && <form className="form-grid" onSubmit={handleSubmit}>
-        <div className="section-heading wide"><h3>Nueva venta</h3><span>Valide inventario antes de guardar</span></div>
+        <div className="section-heading wide"><h3>Datos de venta</h3><span>Solo aparecen como disponibles los productos con lotes vigentes y cantidades disponibles.</span></div>
         <label htmlFor="sale-customer">Cliente<select id="sale-customer" name="customer" value={form.customer} onChange={(e) => {
           const customer = customers.find((item) => item._id === e.target.value);
           setForm({ ...form, customer: e.target.value, routeZone: customer?.zone || form.routeZone });
@@ -343,7 +342,8 @@ export default function Sales() {
           <option value="">Seleccionar</option><option value="contado">Contado</option><option value="credito">Credito</option>
         </select></label>
         <label htmlFor="sale-route-zone">Zona/ruta<input id="sale-route-zone" name="routeZone" value={form.routeZone} onChange={(e) => setForm({ ...form, routeZone: e.target.value })} required /></label>
-        <div className="section-heading wide"><h3>Productos disponibles para venta</h3><span>Venta rapida por lotes FEFO vendibles</span></div>
+        <label className="wide" htmlFor="sale-note">Nota<textarea id="sale-note" name="note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
+        <div className="section-heading wide"><h3>Productos disponibles</h3><span>Busque y agregue productos disponibles para vender.</span></div>
         <label htmlFor="sale-product-search">Buscar producto<input id="sale-product-search" name="productSearch" value={sellableFilters.search} onChange={(e) => updateSellableFilter('search', e.target.value)} placeholder="Nombre, SKU o categoria" /></label>
         <label htmlFor="sale-product-category">Categoria<select id="sale-product-category" name="productCategory" value={sellableFilters.category} onChange={(e) => updateSellableFilter('category', e.target.value)}>
           <option value="">Todas</option>{categories.map((category) => <option key={category} value={category}>{category}</option>)}
@@ -356,8 +356,7 @@ export default function Sales() {
           <button className="button secondary" type="button" onClick={loadSellableProducts} disabled={sellableLoading}>{sellableLoading ? 'Actualizando...' : 'Actualizar'}</button>
           <a className="button ghost" href="/purchases">Ir a Compras</a>
           <a className="button ghost" href="/batches">Ir a Lotes</a>
-          <a className="button ghost" href="/data-cleanup">Ir a Limpieza de datos</a>
-          <a className="button ghost" href="/reconciliation">Ir a Conciliacion</a>
+          <a className="button ghost" href="/products">Ir a Productos</a>
         </div>
         {sellableSummary && (
           <div className="notice info wide">
@@ -412,7 +411,7 @@ export default function Sales() {
             </tbody>
           </table>
         </div>
-        <label className="wide" htmlFor="sale-note">Nota<textarea id="sale-note" name="note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
+        <div className="section-heading wide"><h3>Resumen</h3><span>Valide la venta antes de guardarla.</span></div>
         <div className="inline-total">Total pedido: {money.format(total)}</div>
         <div className="inline-total">Utilidad estimada: {money.format(estimatedProfit)}</div>
         <div className="inline-total">Cantidad total: {totalQuantity}</div>
@@ -521,23 +520,26 @@ export default function Sales() {
       )}
 
       {showForm && orderItems.length > 0 && (
-        <div className="table-wrap">
-          <table>
-            <thead><tr><th>Producto</th><th>SKU</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th>Utilidad est.</th><th></th></tr></thead>
-            <tbody>
-              {orderItems.map((item) => (
-                <tr key={item.product}>
-                  <td>{item.name}</td>
-                  <td>{item.sku}</td>
-                  <td>{item.quantity}</td>
-                  <td>{money.format(item.salePrice)}</td>
-                  <td>{money.format(item.quantity * item.salePrice)}</td>
-                  <td>{money.format(item.quantity * (item.salePrice - item.unitCost))}</td>
-                  <td><button className="button danger" type="button" onClick={() => removeItem(item.product)}>Quitar</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="detail-panel">
+          <h3>Carrito</h3>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Producto</th><th>SKU</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th>Utilidad est.</th><th></th></tr></thead>
+              <tbody>
+                {orderItems.map((item) => (
+                  <tr key={item.product}>
+                    <td>{item.name}</td>
+                    <td>{item.sku}</td>
+                    <td>{item.quantity}</td>
+                    <td>{money.format(item.salePrice)}</td>
+                    <td>{money.format(item.quantity * item.salePrice)}</td>
+                    <td>{money.format(item.quantity * (item.salePrice - item.unitCost))}</td>
+                    <td><button className="button danger" type="button" onClick={() => removeItem(item.product)}>Quitar</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

@@ -27,6 +27,7 @@ const purchaseSchema = new mongoose.Schema(
     balance: { type: Number, min: 0, default: 0 },
     status: { type: String, enum: ['activa', 'anulada'], default: 'activa' },
     invoiceNumber: { type: String, trim: true },
+    purchaseDate: { type: Date, default: Date.now },
     note: { type: String, trim: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     isDemo: { type: Boolean, default: false }

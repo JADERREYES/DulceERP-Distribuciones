@@ -3,14 +3,16 @@ import api from '../api/axios';
 import { exportToCsv, formatDate } from '../utils/exportUtils';
 
 const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
-const emptyPurchaseForm = { supplier: '', product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '', paymentMethod: 'contado', invoiceNumber: '', note: '' };
+const todayInput = () => new Date().toISOString().slice(0, 10);
+const emptyPurchaseForm = () => ({ supplier: '', product: '', quantity: 1, unitCost: '', batchNumber: '', expirationDate: '', paymentMethod: 'contado', invoiceNumber: '', purchaseDate: todayInput(), note: '' });
 
 export default function Purchases() {
   const [purchases, setPurchases] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [products, setProducts] = useState([]);
   const [items, setItems] = useState([]);
-  const [form, setForm] = useState(emptyPurchaseForm);
+  const [form, setForm] = useState(emptyPurchaseForm());
+  const [productSearch, setProductSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [filters, setFilters] = useState({ supplier: '', status: '', paymentStatus: '', from: '', to: '' });
   const [selectedPurchase, setSelectedPurchase] = useState(null);
@@ -19,8 +21,18 @@ export default function Purchases() {
   const selectedProduct = useMemo(() => products.find((product) => product._id === form.product), [products, form.product]);
   const selectedSupplier = useMemo(() => suppliers.find((supplier) => supplier._id === form.supplier), [suppliers, form.supplier]);
   const total = items.reduce((sum, item) => sum + item.quantity * item.unitCost, 0);
+  const totalUnits = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   const activeSuppliers = useMemo(() => suppliers.filter((supplier) => supplier.status !== 'bloqueado'), [suppliers]);
   const activeProducts = useMemo(() => products.filter((product) => product.status !== 'inactivo'), [products]);
+  const filteredProducts = useMemo(() => {
+    const term = productSearch.trim().toLowerCase();
+    if (!term) return activeProducts;
+    return activeProducts.filter((product) => (
+      product.name?.toLowerCase().includes(term) ||
+      product.sku?.toLowerCase().includes(term) ||
+      product.category?.toLowerCase().includes(term)
+    ));
+  }, [activeProducts, productSearch]);
 
   const load = async () => {
     const params = new URLSearchParams({ limit: '100' });
@@ -45,6 +57,7 @@ export default function Purchases() {
     supplier: form.supplier,
     paymentMethod: form.paymentMethod,
     invoiceNumber: form.invoiceNumber?.trim(),
+    purchaseDate: form.purchaseDate,
     note: form.note?.trim(),
     items: items.map((item) => ({
       product: item.product,
@@ -62,8 +75,8 @@ export default function Purchases() {
   const validatePurchaseForm = () => {
     if (!form.supplier) return 'Seleccione un proveedor.';
     if (!form.invoiceNumber?.trim()) return 'Ingrese numero de factura.';
-    if (!form.paymentMethod) return 'Seleccione metodo de pago.';
-    if (!['contado', 'credito'].includes(form.paymentMethod)) return 'El metodo de pago no es valido.';
+    if (!form.paymentMethod) return 'Seleccione forma de pago.';
+    if (!['contado', 'credito'].includes(form.paymentMethod)) return 'La forma de pago no es valida.';
     if (items.length === 0) return 'Agregue al menos un producto.';
 
     for (const item of items) {
@@ -120,7 +133,8 @@ export default function Purchases() {
     setError('');
     setMessage('');
     setItems((current) => [...current, { product: selectedProduct._id, name: selectedProduct.name, sku: selectedProduct.sku, quantity, unitCost, batchNumber: form.batchNumber, expirationDate: form.expirationDate }]);
-    setForm({ ...form, product: '', quantity: 1, unitCost: 0, batchNumber: '', expirationDate: '' });
+    setForm({ ...form, product: '', quantity: 1, unitCost: '', batchNumber: '', expirationDate: '' });
+    setProductSearch('');
   };
 
   const updateItem = (index, field, value) => {
@@ -142,7 +156,8 @@ export default function Purchases() {
       logPurchasePayload(payload);
       await api.post('/purchases', payload);
       setItems([]);
-      setForm(emptyPurchaseForm);
+      setForm(emptyPurchaseForm());
+      setProductSearch('');
       setShowForm(false);
       setMessage('Compra registrada correctamente.');
       await load();
@@ -164,6 +179,7 @@ export default function Purchases() {
   const exportPurchases = () => {
     const ok = exportToCsv('compras-filtradas.csv', purchases.map((purchase) => ({
       Fecha: formatDate(purchase.createdAt),
+      'Fecha compra': formatDate(purchase.purchaseDate || purchase.createdAt),
       Proveedor: purchase.supplier?.name || '',
       Factura: purchase.invoiceNumber || '',
       Total: purchase.total,
@@ -181,7 +197,8 @@ export default function Purchases() {
 
   const startNewPurchase = () => {
     setItems([]);
-    setForm(emptyPurchaseForm);
+    setForm(emptyPurchaseForm());
+    setProductSearch('');
     setError('');
     setMessage('');
     setShowForm(true);
@@ -189,7 +206,8 @@ export default function Purchases() {
 
   const cancelNewPurchase = () => {
     setItems([]);
-    setForm(emptyPurchaseForm);
+    setForm(emptyPurchaseForm());
+    setProductSearch('');
     setError('');
     setMessage('');
     setShowForm(false);
@@ -197,9 +215,13 @@ export default function Purchases() {
 
   return (
     <div className="page-stack">
-      <div className="page-title"><h2>Compras</h2><p>Entradas de inventario, costos y cuentas por pagar.</p></div>
+      <div className="page-title"><h2>Compras</h2><p>Registro de mercancia recibida de proveedores.</p></div>
       <div className="module-toolbar">
         <button className="button primary" type="button" onClick={startNewPurchase}>Nueva compra</button>
+        <button className="button secondary" type="button" onClick={exportPurchases}>Exportar</button>
+        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
+      </div>
+      <div className="module-toolbar">
         <select id="purchase-filter-supplier" name="filterSupplier" value={filters.supplier} onChange={(e) => updateFilter('supplier', e.target.value)}>
           <option value="">Todos los proveedores</option>
           {suppliers.map((supplier) => <option key={supplier._id} value={supplier._id}>{supplier.name}</option>)}
@@ -217,33 +239,50 @@ export default function Purchases() {
         <input id="purchase-filter-from" name="filterFrom" type="date" value={filters.from} onChange={(e) => updateFilter('from', e.target.value)} />
         <input id="purchase-filter-to" name="filterTo" type="date" value={filters.to} onChange={(e) => updateFilter('to', e.target.value)} />
         <button className="button primary" type="button" onClick={load}>Consultar</button>
-        <button className="button secondary" type="button" onClick={exportPurchases}>Exportar</button>
-        <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
       {showForm && <form className="form-grid" onSubmit={submit}>
-        <div className="section-heading wide"><h3>Nueva compra</h3><span>Entrada controlada de inventario y lotes</span></div>
+        <div className="section-heading wide"><h3>Datos de la compra</h3><span>Para que un producto pueda venderse, primero debe registrarse una compra con lote y vencimiento.</span></div>
         {activeSuppliers.length === 0 && <p className="empty-state wide">No hay proveedores registrados. Cree un proveedor antes de registrar una compra.</p>}
         {activeProducts.length === 0 && <p className="empty-state wide">No hay productos registrados. Cree un producto antes de registrar una compra.</p>}
         <label htmlFor="purchase-supplier">Proveedor<select id="purchase-supplier" name="supplier" value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} required><option value="">Seleccionar</option>{activeSuppliers.map((supplier) => <option key={supplier._id} value={supplier._id}>{supplier.name}</option>)}</select></label>
-        <label htmlFor="purchase-payment-method">Forma de pago<select id="purchase-payment-method" name="paymentMethod" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}><option value="">Seleccionar</option><option value="contado">Contado</option><option value="credito">Credito</option></select></label>
         <label htmlFor="purchase-invoice-number">Factura<input id="purchase-invoice-number" name="invoiceNumber" value={form.invoiceNumber} onChange={(e) => setForm({ ...form, invoiceNumber: e.target.value })} /></label>
-        <label htmlFor="purchase-product">Producto<select id="purchase-product" name="product" value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })}><option value="">Seleccionar</option>{activeProducts.map((product) => <option key={product._id} value={product._id}>{product.name} - costo actual {money.format(product.unitCost)}</option>)}</select></label>
+        <label htmlFor="purchase-payment-method">Forma de pago<select id="purchase-payment-method" name="paymentMethod" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}><option value="">Seleccionar</option><option value="contado">Contado</option><option value="credito">Credito</option></select></label>
+        <label htmlFor="purchase-date">Fecha<input id="purchase-date" name="purchaseDate" type="date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })} /></label>
+        <label className="wide" htmlFor="purchase-note">Nota<textarea id="purchase-note" name="note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
+        <div className="module-toolbar wide">
+          <a className="button ghost" href="/suppliers">Nuevo proveedor</a>
+          <a className="button ghost" href="/products">Nuevo producto</a>
+          <a className="button ghost" href="/batches">Ver lotes</a>
+        </div>
+        {selectedSupplier && <div className="notice info wide">Proveedor seleccionado: {selectedSupplier.name}. Deuda actual: {money.format(selectedSupplier.currentDebt || 0)}.</div>}
+
+        <div className="section-heading wide"><h3>Agregar productos</h3><span>Cada producto comprado debe tener fecha de vencimiento para controlar FEFO.</span></div>
+        <label htmlFor="purchase-product-search">Buscar producto<input id="purchase-product-search" name="productSearch" value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Nombre, SKU o categoria" /></label>
+        <label htmlFor="purchase-product">Producto<select id="purchase-product" name="product" value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })}><option value="">Seleccionar</option>{filteredProducts.map((product) => <option key={product._id} value={product._id}>{product.name} - costo actual {money.format(product.unitCost)}</option>)}</select></label>
         <label htmlFor="purchase-quantity">Cantidad<input id="purchase-quantity" name="quantity" type="number" min="1" step="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })} /></label>
         <label htmlFor="purchase-unit-cost">Costo compra<input id="purchase-unit-cost" name="unitCost" type="number" min="1" step="1" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: Number(e.target.value) })} /></label>
         <label htmlFor="purchase-batch-number">Lote opcional<input id="purchase-batch-number" name="batchNumber" value={form.batchNumber} onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} placeholder="Se genera automatico si queda vacio" /></label>
         <label htmlFor="purchase-expiration-date">Vencimiento lote<input id="purchase-expiration-date" name="expirationDate" type="date" value={form.expirationDate} onChange={(e) => setForm({ ...form, expirationDate: e.target.value })} required /></label>
-        <label className="wide" htmlFor="purchase-note">Nota<textarea id="purchase-note" name="note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
-        {selectedSupplier && <div className="notice info wide">Proveedor seleccionado: {selectedSupplier.name}. Deuda actual: {money.format(selectedSupplier.currentDebt || 0)}.</div>}
         {selectedProduct && <div className="notice info wide">Producto seleccionado: {selectedProduct.name} ({selectedProduct.sku}). Stock actual: {selectedProduct.stock}. Costo actual: {money.format(selectedProduct.unitCost)}.</div>}
         <button className="button secondary" type="button" onClick={addItem}>Agregar producto</button>
+
+        <div className="section-heading wide"><h3>Productos agregados</h3><span>Revise cantidades, costos, lotes y vencimientos antes de validar.</span></div>
+        {items.length === 0 && <p className="empty-state wide">Agregue al menos un producto.</p>}
+        {items.length > 0 && <div className="table-wrap wide"><table><thead><tr><th>Producto</th><th>SKU</th><th>Cantidad</th><th>Costo unitario</th><th>Subtotal</th><th>Lote</th><th>Vencimiento</th><th></th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.product}-${index}`}><td>{item.name}</td><td>{item.sku || '-'}</td><td><input id={`purchase-item-${index}-quantity`} name={`items[${index}].quantity`} type="number" min="1" step="1" value={item.quantity} onChange={(e) => updateItem(index, 'quantity', e.target.value)} /></td><td><input id={`purchase-item-${index}-unit-cost`} name={`items[${index}].unitCost`} type="number" min="1" step="1" value={item.unitCost} onChange={(e) => updateItem(index, 'unitCost', e.target.value)} /></td><td>{money.format(Number(item.quantity || 0) * Number(item.unitCost || 0))}</td><td><input id={`purchase-item-${index}-batch-number`} name={`items[${index}].batchNumber`} value={item.batchNumber || ''} onChange={(e) => updateItem(index, 'batchNumber', e.target.value)} placeholder="Automatico" /></td><td><input id={`purchase-item-${index}-expiration-date`} name={`items[${index}].expirationDate`} type="date" value={item.expirationDate || ''} onChange={(e) => updateItem(index, 'expirationDate', e.target.value)} /></td><td><button className="button danger" type="button" onClick={() => setItems(items.filter((_, i) => i !== index))}>Quitar</button></td></tr>)}</tbody></table></div>}
+
+        <div className="section-heading wide"><h3>Resumen</h3><span>Valide antes de registrar para confirmar datos obligatorios.</span></div>
+        <div className="inline-total">Total productos: {items.length}</div>
+        <div className="inline-total">Total unidades: {totalUnits}</div>
         <div className="inline-total">Total compra: {money.format(total)}</div>
-        <button className="button secondary" type="button" onClick={validatePurchase} disabled={items.length === 0}>Validar compra</button>
-        <button className="button primary" type="submit" disabled={items.length === 0}>Registrar compra</button>
-        <button className="button ghost" type="button" onClick={cancelNewPurchase}>Cancelar</button>
+        <div className="inline-total">Forma de pago: {form.paymentMethod || '-'}</div>
+        <div className="module-toolbar wide">
+          <button className="button secondary" type="button" onClick={validatePurchase} disabled={items.length === 0}>Validar compra</button>
+          <button className="button primary" type="submit" disabled={items.length === 0}>Registrar compra</button>
+          <button className="button ghost" type="button" onClick={cancelNewPurchase}>Cancelar</button>
+        </div>
       </form>}
       {error && <p className="error">{error}</p>}
       {message && <p className="success">{message}</p>}
-      {showForm && items.length > 0 && <div className="table-wrap"><table><thead><tr><th>Producto</th><th>SKU</th><th>Cantidad</th><th>Costo unitario</th><th>Subtotal</th><th>Lote</th><th>Vencimiento</th><th></th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.product}-${index}`}><td>{item.name}</td><td>{item.sku || '-'}</td><td><input id={`purchase-item-${index}-quantity`} name={`items[${index}].quantity`} type="number" min="1" step="1" value={item.quantity} onChange={(e) => updateItem(index, 'quantity', e.target.value)} /></td><td><input id={`purchase-item-${index}-unit-cost`} name={`items[${index}].unitCost`} type="number" min="1" step="1" value={item.unitCost} onChange={(e) => updateItem(index, 'unitCost', e.target.value)} /></td><td>{money.format(Number(item.quantity || 0) * Number(item.unitCost || 0))}</td><td><input id={`purchase-item-${index}-batch-number`} name={`items[${index}].batchNumber`} value={item.batchNumber || ''} onChange={(e) => updateItem(index, 'batchNumber', e.target.value)} placeholder="Automatico" /></td><td><input id={`purchase-item-${index}-expiration-date`} name={`items[${index}].expirationDate`} type="date" value={item.expirationDate || ''} onChange={(e) => updateItem(index, 'expirationDate', e.target.value)} /></td><td><button className="button danger" type="button" onClick={() => setItems(items.filter((_, i) => i !== index))}>Quitar</button></td></tr>)}</tbody></table></div>}
       {selectedPurchase && (
         <div className="detail-panel">
           <h3>Detalle compra</h3>

@@ -35,7 +35,7 @@ const purchaseValidationError = (message, field) => {
 };
 
 const validatePurchasePayload = async (payload, options = {}) => {
-  const { supplier: supplierId, items, paymentMethod, invoiceNumber } = payload;
+  const { supplier: supplierId, items, paymentMethod, invoiceNumber, purchaseDate: rawPurchaseDate } = payload;
 
   if (!supplierId) throw purchaseValidationError('Debe seleccionar un proveedor.', 'supplier');
   if (!mongoose.Types.ObjectId.isValid(supplierId)) throw purchaseValidationError('El proveedor seleccionado no existe.', 'supplier');
@@ -51,6 +51,14 @@ const validatePurchasePayload = async (payload, options = {}) => {
 
   if (!Array.isArray(items) || items.length === 0) {
     throw purchaseValidationError('Debe agregar al menos un producto a la compra.', 'items');
+  }
+
+  let purchaseDate;
+  if (rawPurchaseDate) {
+    purchaseDate = new Date(rawPurchaseDate);
+    if (Number.isNaN(purchaseDate.getTime())) {
+      throw purchaseValidationError('La fecha de compra no es valida.', 'purchaseDate');
+    }
   }
 
   const supplierQuery = Supplier.findById(supplierId).select('name document status currentDebt creditLimit paymentTermDays');
@@ -97,7 +105,7 @@ const validatePurchasePayload = async (payload, options = {}) => {
     validatedItems.push({ product, quantity, unitCost, batchNumber, expirationDate, subtotal, fieldPrefix });
   }
 
-  return { supplier, items: validatedItems, total };
+  return { supplier, items: validatedItems, total, purchaseDate };
 };
 
 const getPurchases = async (req, res) => {
@@ -193,7 +201,7 @@ const createPurchase = async (req, res) => {
         await supplier.save({ session });
       }
 
-      const purchase = await Purchase.create([{ supplier: supplier._id, items: purchaseItems, total, paymentMethod, paymentStatus: paymentMethod === 'credito' ? 'pendiente' : 'pagado', paidAmount: paymentMethod === 'credito' ? 0 : total, balance: paymentMethod === 'credito' ? total : 0, invoiceNumber, note, createdBy: req.user?._id }], { session });
+      const purchase = await Purchase.create([{ supplier: supplier._id, items: purchaseItems, total, paymentMethod, paymentStatus: paymentMethod === 'credito' ? 'pendiente' : 'pagado', paidAmount: paymentMethod === 'credito' ? 0 : total, balance: paymentMethod === 'credito' ? total : 0, invoiceNumber, purchaseDate: validation.purchaseDate, note, createdBy: req.user?._id }], { session });
       createdPurchase = purchase[0];
 
       for (const pendingBatch of pendingBatches) {
