@@ -732,6 +732,10 @@ select {
   grid-column: span 2;
 }
 
+.form-grid .wide {
+  grid-column: 1 / -1;
+}
+
 .button {
   border: 0;
   border-radius: 8px;
@@ -760,6 +764,27 @@ select {
   background: #fde8e6;
   color: var(--red);
   padding: 8px 12px;
+}
+
+.link-button {
+  border: 0;
+  background: transparent;
+  color: var(--blue-900);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  padding: 0;
+  text-align: left;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.muted-text {
+  color: var(--gray-500);
+  font-size: 12px;
+  margin-top: 4px;
 }
 
 .button:disabled {

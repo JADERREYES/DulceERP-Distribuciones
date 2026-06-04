@@ -6,7 +6,7 @@ const Sale = require('../models/Sale');
 const { paginatedResponse } = require('../utils/pagination');
 const { applyDateRange } = require('../utils/queryFilters');
 const { createAuditLog } = require('../utils/auditLogger');
-const { getProductSaleAvailability } = require('../utils/saleAvailability');
+const { getProductSaleAvailability, summarizeBatchAvailability } = require('../utils/saleAvailability');
 
 const getProducts = async (req, res) => {
   try {
@@ -24,6 +24,97 @@ const getProducts = async (req, res) => {
     return res.json(await paginatedResponse(Product, { filter, query: req.query, sortDefault: { createdAt: -1 } }));
   } catch (error) {
     return res.status(500).json({ message: 'Error consultando productos.', error: error.message });
+  }
+};
+
+const getSellableProducts = async (req, res) => {
+  try {
+    const { search, category, onlyAvailable = 'false' } = req.query;
+    const page = Math.max(Number(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
+    const filter = {};
+
+    if (search) {
+      const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [{ name: regex }, { sku: regex }, { category: regex }];
+    }
+    if (category) filter.category = category;
+
+    const products = await Product.find(filter)
+      .select('name sku category stock salePrice unitCost status')
+      .sort({ name: 1 })
+      .lean();
+    const productIds = products.map((product) => product._id);
+    const batches = productIds.length
+      ? await ProductBatch.find({ product: { $in: productIds } })
+        .select('product batchNumber availableQuantity expirationDate status createdAt')
+        .sort({ expirationDate: 1, createdAt: 1 })
+        .lean()
+      : [];
+    const batchesByProduct = batches.reduce((acc, batch) => {
+      const key = String(batch.product);
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(batch);
+      return acc;
+    }, {});
+
+    const rows = products.map((product) => {
+      const availability = summarizeBatchAvailability(product, batchesByProduct[String(product._id)] || []);
+      const sellableQuantity = availability.availability.maxSellableQuantity;
+      const expiredQuantity = availability.availability.expiredBatchQuantity;
+      const blockedQuantity = availability.availability.blockedBatchQuantity;
+      const nextExpirationDate = availability.sellableBatches[0]?.expirationDate || null;
+
+      return {
+        _id: product._id,
+        name: product.name,
+        sku: product.sku,
+        category: product.category,
+        salePrice: Number(product.salePrice || 0),
+        unitCost: Number(product.unitCost || 0),
+        generalStock: availability.availability.generalStock,
+        sellableQuantity,
+        expiredQuantity,
+        blockedQuantity,
+        nextExpirationDate,
+        status: product.status,
+        canSell: sellableQuantity > 0,
+        warnings: availability.warnings
+      };
+    });
+
+    const summary = rows.reduce((acc, product) => {
+      acc.totalProducts += 1;
+      if (product.canSell) acc.sellableProducts += 1;
+      if (product.blockedQuantity > 0) acc.blockedProducts += 1;
+      if (product.expiredQuantity > 0) acc.expiredProducts += 1;
+      acc.totalSellableUnits += product.sellableQuantity;
+      return acc;
+    }, {
+      totalProducts: 0,
+      sellableProducts: 0,
+      blockedProducts: 0,
+      expiredProducts: 0,
+      totalSellableUnits: 0
+    });
+
+    const filteredRows = onlyAvailable === 'true' ? rows.filter((product) => product.canSell) : rows;
+    const total = filteredRows.length;
+    const start = (page - 1) * limit;
+    const data = filteredRows.slice(start, start + limit);
+
+    return res.json({
+      data,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit) || 1
+      },
+      summary
+    });
+  } catch (error) {
+    return res.status(500).json({ message: 'Error consultando productos vendibles.', error: error.message });
   }
 };
 
@@ -154,4 +245,4 @@ const deleteProduct = async (req, res) => {
   }
 };
 
-module.exports = { getProducts, createProduct, getProductById, getProductSaleAvailabilityController, updateProduct, deleteProduct };
+module.exports = { getProducts, getSellableProducts, createProduct, getProductById, getProductSaleAvailabilityController, updateProduct, deleteProduct };
