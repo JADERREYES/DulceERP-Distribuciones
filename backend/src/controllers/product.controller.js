@@ -58,6 +58,15 @@ const getSellableProducts = async (req, res) => {
       return acc;
     }, {});
 
+    const buildNonSellableReason = (availability) => {
+      if (availability.availability.maxSellableQuantity > 0) return '';
+      if (availability.availability.generalStock <= 0) return 'Sin stock general disponible.';
+      if (availability.availability.expiredBatchQuantity > 0 && availability.availability.blockedBatchQuantity > 0) return 'Lotes vencidos o bloqueados sin disponibilidad para venta.';
+      if (availability.availability.expiredBatchQuantity > 0) return 'Sin lotes vigentes disponibles para venta.';
+      if (availability.availability.blockedBatchQuantity > 0) return 'Lotes bloqueados sin disponibilidad para venta.';
+      return 'Sin lotes disponibles para venta.';
+    };
+
     const rows = products.map((product) => {
       const availability = summarizeBatchAvailability(product, batchesByProduct[String(product._id)] || []);
       const sellableQuantity = availability.availability.maxSellableQuantity;
@@ -79,6 +88,7 @@ const getSellableProducts = async (req, res) => {
         nextExpirationDate,
         status: product.status,
         canSell: sellableQuantity > 0,
+        reason: buildNonSellableReason(availability),
         warnings: availability.warnings
       };
     });

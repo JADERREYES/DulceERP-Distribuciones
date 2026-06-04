@@ -7,6 +7,7 @@ const Sale = require('../models/Sale');
 const { createAuditLog } = require('../utils/auditLogger');
 const { paginatedResponse } = require('../utils/pagination');
 const { applyDateRange, escapeRegex } = require('../utils/queryFilters');
+const { isExpiredLotSaleTestModeEnabled } = require('../utils/testMode');
 
 const saleValidationError = (message, field, details = {}, statusCode = 400) => {
   const error = new Error(message);
@@ -35,7 +36,17 @@ const logSalePayload = (req) => {
 };
 
 const validateSalePayload = async ({ body, user, session, mutate = false }) => {
-  const { customer: customerId, items, paymentMethod, routeZone } = body || {};
+  const { customer: customerId, items, paymentMethod, routeZone, testBypassFefo } = body || {};
+  const requestBypassFefo = testBypassFefo === true;
+  const bypassReason = 'Venta permitida por modo de prueba local';
+
+  if (requestBypassFefo && process.env.NODE_ENV === 'production') {
+    throw saleValidationError('El modo prueba sin FEFO no esta permitido en produccion.', 'testBypassFefo', {}, 403);
+  }
+
+  if (requestBypassFefo && !isExpiredLotSaleTestModeEnabled()) {
+    throw saleValidationError('El modo prueba de ventas sin FEFO no esta habilitado.', 'testBypassFefo', {}, 403);
+  }
 
   if (!customerId) throw saleValidationError('Debe seleccionar un cliente.', 'customer');
   if (!mongoose.Types.ObjectId.isValid(customerId)) throw saleValidationError('El cliente seleccionado no existe.', 'customer', { customer: customerId });
@@ -93,6 +104,43 @@ const validateSalePayload = async ({ body, user, session, mutate = false }) => {
     const costSubtotal = quantity * unitCost;
     let remainingQuantity = quantity;
     const assignedBatches = [];
+
+    if (requestBypassFefo) {
+      const previousStock = Number(product.stock || 0);
+
+      saleItems.push({
+        product: product._id,
+        quantity,
+        unitPrice,
+        unitCost,
+        subtotal,
+        costSubtotal,
+        batches: []
+      });
+
+      pendingMovements.push({
+        product: product._id,
+        type: 'salida_venta_prueba_sin_fefo',
+        quantity: -quantity,
+        unitCost,
+        previousStock: mutate ? previousStock : null,
+        newStock: mutate ? previousStock - quantity : null,
+        referenceType: 'Sale',
+        description: 'Salida venta prueba sin FEFO',
+        user: user?._id
+      });
+
+      total += subtotal;
+      totalCost += costSubtotal;
+
+      if (mutate) {
+        product.stock = previousStock - quantity;
+        product.updateInventoryStatus();
+        await product.save({ session });
+      }
+
+      continue;
+    }
 
     const allBatchesQuery = ProductBatch.find({ product: product._id, availableQuantity: { $gt: 0 } }).select('_id status expirationDate availableQuantity batchNumber');
     if (session) allBatchesQuery.session(session);
@@ -226,13 +274,19 @@ const validateSalePayload = async ({ body, user, session, mutate = false }) => {
     total,
     totalCost,
     grossProfit: total - totalCost,
+    testMode: requestBypassFefo,
+    bypassFefo: requestBypassFefo,
+    bypassReason: requestBypassFefo ? bypassReason : '',
+    warning: requestBypassFefo ? 'Venta permitida por modo de prueba. No se aplico FEFO porque el producto no tiene lotes vigentes disponibles.' : '',
     summary: {
       customer: customer.name,
       itemsCount: saleItems.length,
       total,
       estimatedCost: totalCost,
       estimatedGrossProfit: total - totalCost,
-      batchesAvailable: saleItems.every((item) => item.batches?.length > 0)
+      batchesAvailable: saleItems.every((item) => item.batches?.length > 0),
+      testMode: requestBypassFefo,
+      bypassFefo: requestBypassFefo
     }
   };
 };
@@ -299,7 +353,10 @@ const createSale = async (req, res) => {
             routeZone,
             note,
             seller: req.user?._id,
-            status: 'activa'
+            status: 'activa',
+            testMode: saleData.testMode,
+            bypassFefo: saleData.bypassFefo,
+            bypassReason: saleData.bypassReason
           }
         ],
         { session }
@@ -328,6 +385,25 @@ const createSale = async (req, res) => {
       metadata: { total: populatedSale.total, items: populatedSale.items.length, paymentMethod }
     });
 
+    if (saleData.bypassFefo) {
+      await createAuditLog({
+        req,
+        action: 'TEST_BYPASS_FEFO_SALE',
+        module: 'sales',
+        entityId: populatedSale._id,
+        entityType: 'Sale',
+        description: 'Venta registrada en modo prueba sin FEFO',
+        after: populatedSale.toObject(),
+        metadata: {
+          message: 'Venta registrada en modo prueba sin FEFO',
+          customer: populatedSale.customer?._id || populatedSale.customer,
+          items: populatedSale.items.map((item) => ({ product: item.product?._id || item.product, quantity: item.quantity })),
+          reason: saleData.bypassReason,
+          date: new Date().toISOString()
+        }
+      });
+    }
+
     return res.status(201).json(populatedSale);
   } catch (error) {
     return res.status(error.statusCode || 400).json(errorPayload(error));
@@ -343,6 +419,7 @@ const validateSale = async (req, res) => {
     return res.json({
       ok: true,
       message: 'La venta es valida y puede registrarse.',
+      warning: saleData.warning || undefined,
       summary: saleData.summary
     });
   } catch (error) {

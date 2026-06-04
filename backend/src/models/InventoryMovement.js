@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 const inventoryMovementSchema = new mongoose.Schema(
   {
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product', required: true },
-    type: { type: String, enum: ['entrada_compra', 'salida_venta', 'devolucion_anulacion', 'anulacion_compra', 'ajuste', 'merma', 'carga_inicial_lote'], required: true },
+    type: { type: String, enum: ['entrada_compra', 'salida_venta', 'salida_venta_prueba_sin_fefo', 'devolucion_anulacion', 'anulacion_compra', 'ajuste', 'merma', 'carga_inicial_lote'], required: true },
     quantity: { type: Number, required: true },
     unitCost: { type: Number, min: 0, default: 0 },
     previousStock: { type: Number, required: true },

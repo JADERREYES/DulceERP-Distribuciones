@@ -110,6 +110,18 @@ const saleSchema = new mongoose.Schema(
       enum: ['activa', 'anulada'],
       default: 'activa'
     },
+    testMode: {
+      type: Boolean,
+      default: false
+    },
+    bypassFefo: {
+      type: Boolean,
+      default: false
+    },
+    bypassReason: {
+      type: String,
+      default: ''
+    },
     isDemo: {
       type: Boolean,
       default: false

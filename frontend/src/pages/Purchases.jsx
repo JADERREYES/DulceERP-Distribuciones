@@ -240,46 +240,62 @@ export default function Purchases() {
         <input id="purchase-filter-to" name="filterTo" type="date" value={filters.to} onChange={(e) => updateFilter('to', e.target.value)} />
         <button className="button primary" type="button" onClick={load}>Consultar</button>
       </div>
-      {showForm && <form className="form-grid" onSubmit={submit}>
-        <div className="section-heading wide"><h3>Datos de la compra</h3><span>Para que un producto pueda venderse, primero debe registrarse una compra con lote y vencimiento.</span></div>
+      {showForm && <form className="quick-form" onSubmit={submit}>
+        <section className="quick-section">
+          <div className="section-heading"><h3>Datos basicos</h3><span>Para vender productos, primero deben entrar por compra con vencimiento valido.</span></div>
+          <div className="quick-product-row">
+            <label htmlFor="purchase-supplier">Proveedor<select id="purchase-supplier" name="supplier" value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} required><option value="">Seleccionar</option>{activeSuppliers.map((supplier) => <option key={supplier._id} value={supplier._id}>{supplier.name}</option>)}</select></label>
+            <label htmlFor="purchase-invoice-number">Factura<input id="purchase-invoice-number" name="invoiceNumber" value={form.invoiceNumber} onChange={(e) => setForm({ ...form, invoiceNumber: e.target.value })} placeholder={`PENDIENTE-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`} /></label>
+            <label htmlFor="purchase-payment-method">Forma de pago<select id="purchase-payment-method" name="paymentMethod" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}><option value="">Seleccionar</option><option value="contado">Contado</option><option value="credito">Credito</option></select></label>
+            <label htmlFor="purchase-date">Fecha<input id="purchase-date" name="purchaseDate" type="date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })} /></label>
+          </div>
+        </section>
         {activeSuppliers.length === 0 && <p className="empty-state wide">No hay proveedores registrados. Cree un proveedor antes de registrar una compra.</p>}
         {activeProducts.length === 0 && <p className="empty-state wide">No hay productos registrados. Cree un producto antes de registrar una compra.</p>}
-        <label htmlFor="purchase-supplier">Proveedor<select id="purchase-supplier" name="supplier" value={form.supplier} onChange={(e) => setForm({ ...form, supplier: e.target.value })} required><option value="">Seleccionar</option>{activeSuppliers.map((supplier) => <option key={supplier._id} value={supplier._id}>{supplier.name}</option>)}</select></label>
-        <label htmlFor="purchase-invoice-number">Factura<input id="purchase-invoice-number" name="invoiceNumber" value={form.invoiceNumber} onChange={(e) => setForm({ ...form, invoiceNumber: e.target.value })} /></label>
-        <label htmlFor="purchase-payment-method">Forma de pago<select id="purchase-payment-method" name="paymentMethod" value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}><option value="">Seleccionar</option><option value="contado">Contado</option><option value="credito">Credito</option></select></label>
-        <label htmlFor="purchase-date">Fecha<input id="purchase-date" name="purchaseDate" type="date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })} /></label>
-        <label className="wide" htmlFor="purchase-note">Nota<textarea id="purchase-note" name="note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
-        <div className="module-toolbar wide">
-          <a className="button ghost" href="/suppliers">Nuevo proveedor</a>
-          <a className="button ghost" href="/products">Nuevo producto</a>
-          <a className="button ghost" href="/batches">Ver lotes</a>
-        </div>
-        {selectedSupplier && <div className="notice info wide">Proveedor seleccionado: {selectedSupplier.name}. Deuda actual: {money.format(selectedSupplier.currentDebt || 0)}.</div>}
+        {selectedSupplier && <div className="notice info">Proveedor seleccionado: {selectedSupplier.name}. Deuda actual: {money.format(selectedSupplier.currentDebt || 0)}.</div>}
 
-        <div className="section-heading wide"><h3>Agregar productos</h3><span>Cada producto comprado debe tener fecha de vencimiento para controlar FEFO.</span></div>
-        <label htmlFor="purchase-product-search">Buscar producto<input id="purchase-product-search" name="productSearch" value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Nombre, SKU o categoria" /></label>
-        <label htmlFor="purchase-product">Producto<select id="purchase-product" name="product" value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })}><option value="">Seleccionar</option>{filteredProducts.map((product) => <option key={product._id} value={product._id}>{product.name} - costo actual {money.format(product.unitCost)}</option>)}</select></label>
-        <label htmlFor="purchase-quantity">Cantidad<input id="purchase-quantity" name="quantity" type="number" min="1" step="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })} /></label>
-        <label htmlFor="purchase-unit-cost">Costo compra<input id="purchase-unit-cost" name="unitCost" type="number" min="1" step="1" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: Number(e.target.value) })} /></label>
-        <label htmlFor="purchase-batch-number">Lote opcional<input id="purchase-batch-number" name="batchNumber" value={form.batchNumber} onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} placeholder="Se genera automatico si queda vacio" /></label>
-        <label htmlFor="purchase-expiration-date">Vencimiento lote<input id="purchase-expiration-date" name="expirationDate" type="date" value={form.expirationDate} onChange={(e) => setForm({ ...form, expirationDate: e.target.value })} required /></label>
-        {selectedProduct && <div className="notice info wide">Producto seleccionado: {selectedProduct.name} ({selectedProduct.sku}). Stock actual: {selectedProduct.stock}. Costo actual: {money.format(selectedProduct.unitCost)}.</div>}
-        <button className="button secondary" type="button" onClick={addItem}>Agregar producto</button>
+        <section className="quick-section">
+          <div className="section-heading"><h3>Agregar producto</h3><span>Cantidad, costo y vencimiento son suficientes para agregar al carrito.</span></div>
+          <div className="quick-product-row">
+            <label htmlFor="purchase-product-search">Buscar producto<input id="purchase-product-search" name="productSearch" value={productSearch} onChange={(e) => setProductSearch(e.target.value)} placeholder="Nombre, SKU o categoria" /></label>
+            <label htmlFor="purchase-product">Producto<select id="purchase-product" name="product" value={form.product} onChange={(e) => setForm({ ...form, product: e.target.value })}><option value="">Seleccionar</option>{filteredProducts.map((product) => <option key={product._id} value={product._id}>{product.name} - costo actual {money.format(product.unitCost)}</option>)}</select></label>
+            <label htmlFor="purchase-quantity">Cantidad<input id="purchase-quantity" name="quantity" type="number" min="1" step="1" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: Number(e.target.value) })} /></label>
+            <label htmlFor="purchase-unit-cost">Costo unitario<input id="purchase-unit-cost" name="unitCost" type="number" min="1" step="1" value={form.unitCost} onChange={(e) => setForm({ ...form, unitCost: Number(e.target.value) })} /></label>
+            <label htmlFor="purchase-expiration-date">Vencimiento<input id="purchase-expiration-date" name="expirationDate" type="date" value={form.expirationDate} onChange={(e) => setForm({ ...form, expirationDate: e.target.value })} required /></label>
+            <button className="button primary primary-action" type="button" onClick={addItem}>Agregar al carrito</button>
+          </div>
+          {selectedProduct && <div className="notice info">Producto seleccionado: {selectedProduct.name} ({selectedProduct.sku}). Stock actual: {selectedProduct.stock}. Costo actual: {money.format(selectedProduct.unitCost)}.</div>}
+        </section>
 
-        <div className="section-heading wide"><h3>Productos agregados</h3><span>Revise cantidades, costos, lotes y vencimientos antes de validar.</span></div>
-        {items.length === 0 && <p className="empty-state wide">Agregue al menos un producto.</p>}
-        {items.length > 0 && <div className="table-wrap wide"><table><thead><tr><th>Producto</th><th>SKU</th><th>Cantidad</th><th>Costo unitario</th><th>Subtotal</th><th>Lote</th><th>Vencimiento</th><th></th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.product}-${index}`}><td>{item.name}</td><td>{item.sku || '-'}</td><td><input id={`purchase-item-${index}-quantity`} name={`items[${index}].quantity`} type="number" min="1" step="1" value={item.quantity} onChange={(e) => updateItem(index, 'quantity', e.target.value)} /></td><td><input id={`purchase-item-${index}-unit-cost`} name={`items[${index}].unitCost`} type="number" min="1" step="1" value={item.unitCost} onChange={(e) => updateItem(index, 'unitCost', e.target.value)} /></td><td>{money.format(Number(item.quantity || 0) * Number(item.unitCost || 0))}</td><td><input id={`purchase-item-${index}-batch-number`} name={`items[${index}].batchNumber`} value={item.batchNumber || ''} onChange={(e) => updateItem(index, 'batchNumber', e.target.value)} placeholder="Automatico" /></td><td><input id={`purchase-item-${index}-expiration-date`} name={`items[${index}].expirationDate`} type="date" value={item.expirationDate || ''} onChange={(e) => updateItem(index, 'expirationDate', e.target.value)} /></td><td><button className="button danger" type="button" onClick={() => setItems(items.filter((_, i) => i !== index))}>Quitar</button></td></tr>)}</tbody></table></div>}
+        <details className="advanced-options">
+          <summary>Opciones avanzadas</summary>
+          <div className="quick-product-row">
+            <label htmlFor="purchase-batch-number">Lote manual<input id="purchase-batch-number" name="batchNumber" value={form.batchNumber} onChange={(e) => setForm({ ...form, batchNumber: e.target.value })} placeholder="Automatico si queda vacio" /></label>
+            <label htmlFor="purchase-note">Nota<textarea id="purchase-note" name="note" value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} /></label>
+          </div>
+          <div className="module-toolbar">
+            <a className="button ghost" href="/suppliers">Nuevo proveedor</a>
+            <a className="button ghost" href="/products">Nuevo producto</a>
+            <a className="button ghost" href="/batches">Ver lotes</a>
+          </div>
+        </details>
 
-        <div className="section-heading wide"><h3>Resumen</h3><span>Valide antes de registrar para confirmar datos obligatorios.</span></div>
-        <div className="inline-total">Total productos: {items.length}</div>
-        <div className="inline-total">Total unidades: {totalUnits}</div>
-        <div className="inline-total">Total compra: {money.format(total)}</div>
-        <div className="inline-total">Forma de pago: {form.paymentMethod || '-'}</div>
-        <div className="module-toolbar wide">
-          <button className="button secondary" type="button" onClick={validatePurchase} disabled={items.length === 0}>Validar compra</button>
-          <button className="button primary" type="submit" disabled={items.length === 0}>Registrar compra</button>
-          <button className="button ghost" type="button" onClick={cancelNewPurchase}>Cancelar</button>
-        </div>
+        <section className="quick-section quick-cart">
+          <div className="section-heading"><h3>Carrito de compra</h3><span>Revise productos antes de registrar.</span></div>
+          {items.length === 0 && <p className="empty-state">Agrega productos para registrar la compra.</p>}
+          {items.length > 0 && <div className="table-wrap"><table><thead><tr><th>Producto</th><th>SKU</th><th>Cantidad</th><th>Costo</th><th>Vencimiento</th><th>Subtotal</th><th></th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.product}-${index}`}><td>{item.name}</td><td>{item.sku || '-'}</td><td><input id={`purchase-item-${index}-quantity`} name={`items[${index}].quantity`} type="number" min="1" step="1" value={item.quantity} onChange={(e) => updateItem(index, 'quantity', e.target.value)} /></td><td><input id={`purchase-item-${index}-unit-cost`} name={`items[${index}].unitCost`} type="number" min="1" step="1" value={item.unitCost} onChange={(e) => updateItem(index, 'unitCost', e.target.value)} /></td><td><input id={`purchase-item-${index}-expiration-date`} name={`items[${index}].expirationDate`} type="date" value={item.expirationDate || ''} onChange={(e) => updateItem(index, 'expirationDate', e.target.value)} /></td><td>{money.format(Number(item.quantity || 0) * Number(item.unitCost || 0))}</td><td><button className="button danger" type="button" onClick={() => setItems(items.filter((_, i) => i !== index))}>Quitar</button></td></tr>)}</tbody></table></div>}
+        </section>
+
+        <section className="quick-section quick-summary">
+          <div><span>Total unidades</span><strong>{totalUnits}</strong></div>
+          <div><span>Total compra</span><strong>{money.format(total)}</strong></div>
+          <div><span>Forma de pago</span><strong>{form.paymentMethod || '-'}</strong></div>
+          <div className="quick-summary-actions">
+            <button className="button primary primary-action" type="submit" disabled={items.length === 0}>Registrar compra</button>
+            <button className="button secondary secondary-action" type="button" onClick={() => { setItems([]); setForm(emptyPurchaseForm()); setProductSearch(''); }}>Limpiar</button>
+            <button className="button ghost secondary-action" type="button" onClick={cancelNewPurchase}>Cancelar</button>
+          </div>
+        </section>
       </form>}
       {error && <p className="error">{error}</p>}
       {message && <p className="success">{message}</p>}

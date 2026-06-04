@@ -22,6 +22,7 @@ const supplierRoutes = require('./routes/supplier.routes');
 const kardexRoutes = require('./routes/kardex.routes');
 const wasteRoutes = require('./routes/waste.routes');
 const userRoutes = require('./routes/user.routes');
+const { isExpiredLotSaleTestModeEnabled } = require('./utils/testMode');
 
 const app = express();
 
@@ -56,6 +57,7 @@ app.get('/api/health', (req, res) => {
     service: 'DulceERP API',
     database: dbStates[mongoose.connection.readyState] || 'unknown',
     environment: process.env.NODE_ENV || 'development',
+    allowExpiredLotSalesForTest: isExpiredLotSaleTestModeEnabled(),
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
   });

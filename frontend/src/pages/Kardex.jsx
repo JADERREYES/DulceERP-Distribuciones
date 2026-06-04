@@ -4,6 +4,9 @@ import { exportToCsv, formatCurrency, formatDate } from '../utils/exportUtils';
 
 const money = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 const initialFilters = { product: '', type: '', from: '', to: '', batch: '', reference: '' };
+const movementLabels = {
+  salida_venta_prueba_sin_fefo: 'Salida venta prueba sin FEFO'
+};
 
 export default function Kardex() {
   const [movements, setMovements] = useState([]);
@@ -74,6 +77,7 @@ export default function Kardex() {
           <option value="">Todos los tipos</option>
           <option value="entrada_compra">Entrada compra</option>
           <option value="salida_venta">Salida venta</option>
+          <option value="salida_venta_prueba_sin_fefo">Salida venta prueba sin FEFO</option>
           <option value="devolucion_anulacion">Devolucion anulacion</option>
           <option value="anulacion_compra">Anulacion compra</option>
           <option value="ajuste">Ajuste</option>
@@ -93,7 +97,7 @@ export default function Kardex() {
         <button className="button ghost" type="button" onClick={() => window.print()}>Imprimir</button>
       </div>
       {error && <p className="error">{error}</p>}
-      <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Producto</th><th>Lote</th><th>Tipo</th><th>Cantidad</th><th>Stock anterior</th><th>Stock nuevo</th><th>Referencia</th><th>Descripcion</th></tr></thead><tbody>{movements.map((movement) => <tr key={movement._id}><td>{new Date(movement.createdAt).toLocaleString('es-CO')}</td><td>{movement.product?.name}</td><td>{movement.batchNumber || movement.batch?.batchNumber || '-'}</td><td><span className="badge info">{movement.type}</span></td><td>{movement.quantity}</td><td>{movement.previousStock}</td><td>{movement.newStock}</td><td>{movement.referenceType}</td><td>{movement.description}</td></tr>)}</tbody></table></div>
+      <div className="table-wrap"><table><thead><tr><th>Fecha</th><th>Producto</th><th>Lote</th><th>Tipo</th><th>Cantidad</th><th>Stock anterior</th><th>Stock nuevo</th><th>Referencia</th><th>Descripcion</th></tr></thead><tbody>{movements.map((movement) => <tr key={movement._id}><td>{new Date(movement.createdAt).toLocaleString('es-CO')}</td><td>{movement.product?.name}</td><td>{movement.batchNumber || movement.batch?.batchNumber || '-'}</td><td><span className="badge info">{movementLabels[movement.type] || movement.type}</span></td><td>{movement.quantity}</td><td>{movement.previousStock}</td><td>{movement.newStock}</td><td>{movement.referenceType}</td><td>{movement.description}</td></tr>)}</tbody></table></div>
       <div className="table-wrap"><table><thead><tr><th colSpan="6">Costos historicos</th></tr><tr><th>Fecha</th><th>Producto</th><th>Proveedor</th><th>Costo anterior</th><th>Costo nuevo</th><th>Cantidad</th></tr></thead><tbody>{costs.map((cost) => <tr key={cost._id}><td>{formatDate(cost.createdAt)}</td><td>{cost.product?.name}</td><td>{cost.supplier?.name || '-'}</td><td>{formatCurrency(cost.previousCost) || money.format(cost.previousCost)}</td><td>{formatCurrency(cost.newCost) || money.format(cost.newCost)}</td><td>{cost.quantity}</td></tr>)}</tbody></table></div>
     </div>
   );
